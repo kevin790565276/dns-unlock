@@ -9,7 +9,15 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# --- 域名列表 ---
+# --- 核心：自动安装为系统快捷指令 ---
+# 检查当前运行的文件是否已经在 /usr/local/bin/dns
+if [[ "$0" != "/usr/local/bin/dns" && "$0" != "dns" ]]; then
+    cp "$0" /usr/local/bin/dns
+    chmod +x /usr/local/bin/dns
+    echo -e "${GREEN}[+] 已自动为您创建快捷指令：直接输入 'dns' 即可再次运行${NC}"
+fi
+
+# --- 域名列表 (保持不变) ---
 GOOGLE_DOMAINS=(google.com google.com.hk google.com.tw google.jp google.co.jp google.com.sg googleapis.com gstatic.com googleusercontent.com drive.google.com mail.google.com android.com play.google.com developer.android.com google-analytics.com googleadservices.com googletagmanager.com googlefonts.com gvt1.com)
 AI_DOMAINS=(openai.com chatgpt.com oaistatic.com oaiusercontent.com anthropic.com claude.ai gemini.google.com bard.google.com makeresuite.google.com perplexity.ai mistral.ai x.ai grok.com bing.com edgeservices.microsoft.com)
 STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com spotify.com scdn.co)
@@ -25,11 +33,11 @@ show_menu() {
     clear
     draw_line
     echo -e "${PURPLE}          DNS 流媒体一键解锁助手 ${NC}"
-    echo -e "${CYAN}    运行环境: ${YELLOW}$(uname -s) / $(uname -m)${NC}"
+    echo -e "${CYAN}    快捷指令: 直接输入 'dns' 即可启动${NC}"
     draw_line
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置分流解锁规则 ${YELLOW}(接管系统 DNS)${NC}"
-    echo -e "  ${RED}3.${NC} 还原系统配置 ${RED}(清理解锁)${NC}"
+    echo -e "  ${GREEN}2.${NC} 配置分流解锁规则"
+    echo -e "  ${RED}3.${NC} 还原系统配置"
     echo -e "  ${BLUE}4.${NC} 退出脚本"
     draw_line
     echo -ne "${CYAN}请输入选项 [1-4]: ${NC}"
@@ -57,19 +65,19 @@ do_config() {
         sleep 2 && return
     fi
 
-    echo -e "${YELLOW}[*] 正在优化 Dnsmasq 主配置...${NC}"
+    # 修复主配置
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
     grep -q "conf-dir=/etc/dnsmasq.d/,*.conf" $MAIN_CONF || echo "conf-dir=/etc/dnsmasq.d/,*.conf" >> $MAIN_CONF
     grep -q "server=8.8.8.8" $MAIN_CONF || { echo "server=8.8.8.8" >> $MAIN_CONF; echo "server=8.8.4.4" >> $MAIN_CONF; }
 
-    echo -e "${YELLOW}[*] 正在写入分流规则...${NC}"
+    # 写入分流规则
     mkdir -p /etc/dnsmasq.d/
     echo "# Unlock Rules" > $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do
         echo "server=/$d/$dns_ip" >> $CONF_FILE
     done
 
-    echo -e "${YELLOW}[*] 正在接管系统解析器...${NC}"
+    # 系统接管
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     
@@ -90,10 +98,6 @@ do_clear() {
 
 # --- 启动环境检查 ---
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 必须使用 root 运行${NC}" && exit 1
-if systemctl is-active --quiet systemd-resolved; then
-    systemctl stop systemd-resolved
-    systemctl disable systemd-resolved
-fi
 
 # --- 循环主程序 ---
 while true; do
