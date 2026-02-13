@@ -64,19 +64,16 @@ do_config() {
         sleep 2 && return
     fi
 
-    # 修复配置
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
     grep -q "conf-dir=/etc/dnsmasq.d/,*.conf" $MAIN_CONF || echo "conf-dir=/etc/dnsmasq.d/,*.conf" >> $MAIN_CONF
     grep -q "server=8.8.8.8" $MAIN_CONF || { echo "server=8.8.8.8" >> $MAIN_CONF; echo "server=8.8.4.4" >> $MAIN_CONF; }
 
-    # 写入分流
     mkdir -p /etc/dnsmasq.d/
     echo "# Unlock Rules" > $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do
         echo "server=/$d/$dns_ip" >> $CONF_FILE
     done
 
-    # 接管系统
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     
@@ -96,19 +93,28 @@ do_clear() {
 }
 
 do_check() {
-    echo -e "\n${YELLOW}[*] 正在运行 UnlockTests 精准检测...${NC}"
-    # 临时切到本地 127.0.0.1 以确保检测的是 Dnsmasq 分流后的效果
+    echo -e "\n${YELLOW}[*] 正在配置检测环境...${NC}"
+    # 确保当前 DNS 正在工作
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     
-    # 运行指定的 UnlockTests 脚本
+    # 1. 下载并安装 (UnlockTests)
     curl -sL https://raw.githubusercontent.com/oneclickvirt/UnlockTests/main/ut_install.sh -sSf | bash
+    
+    # 2. 关键修复：直接运行安装后的二进制文件
+    # oneclickvirt 通常安装在 /usr/bin/ut 或通过别名运行
+    if [ -f "/usr/bin/ut" ]; then
+        /usr/bin/ut
+    else
+        # 如果是 alias 方式，尝试直接用 ut 运行
+        ut
+    fi
     
     echo -e "\n${CYAN}检测完成，按回车键返回菜单...${NC}"
     read < /dev/tty
 }
 
-# --- 启动前环境修复 ---
+# --- 启动环境检查 ---
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 必须使用 root 运行${NC}" && exit 1
 if systemctl is-active --quiet systemd-resolved; then
     systemctl stop systemd-resolved
