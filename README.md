@@ -1,1 +1,1 @@
-wget -qO dns_unlock.sh https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/unlock.sh && chmod +x dns_unlock.sh && ./dns_unlock.sh
+curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_unlock.sh | tr -d '\r' > dns_unlock.sh && bash dns_unlock.sh
