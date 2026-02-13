@@ -9,18 +9,17 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# --- 核心：自动安装为系统快捷指令 ---
-# 检查当前运行的文件是否已经在 /usr/local/bin/dns
+# --- 自动安装为系统快捷指令 ---
 if [[ "$0" != "/usr/local/bin/dns" && "$0" != "dns" ]]; then
     cp "$0" /usr/local/bin/dns
     chmod +x /usr/local/bin/dns
-    echo -e "${GREEN}[+] 已自动为您创建快捷指令：直接输入 'dns' 即可再次运行${NC}"
+    echo -e "${GREEN}[+] 已自动创建快捷指令：直接输入 'dns' 即可启动${NC}"
 fi
 
-# --- 域名列表 (保持不变) ---
+# --- 域名列表 ---
 GOOGLE_DOMAINS=(google.com google.com.hk google.com.tw google.jp google.co.jp google.com.sg googleapis.com gstatic.com googleusercontent.com drive.google.com mail.google.com android.com play.google.com developer.android.com google-analytics.com googleadservices.com googletagmanager.com googlefonts.com gvt1.com)
 AI_DOMAINS=(openai.com chatgpt.com oaistatic.com oaiusercontent.com anthropic.com claude.ai gemini.google.com bard.google.com makeresuite.google.com perplexity.ai mistral.ai x.ai grok.com bing.com edgeservices.microsoft.com)
-STREAMING_DOMAINS=(disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com spotify.com scdn.co)
+STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com spotify.com scdn.co)
 
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
@@ -38,13 +37,13 @@ show_menu() {
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
     echo -e "  ${GREEN}2.${NC} 配置分流解锁规则"
     echo -e "  ${RED}3.${NC} 还原系统配置"
-    echo -e "  ${BLUE}4.${NC} 退出脚本"
+    echo -e "  ${YELLOW}4.${NC} 运行流媒体解锁检测"
+    echo -e "  ${BLUE}0.${NC} 退出脚本"
     draw_line
-    echo -ne "${CYAN}请输入选项 [1-4]: ${NC}"
+    echo -ne "${CYAN}请输入选项 [0-4]: ${NC}"
     read choice < /dev/tty
 }
 
-# --- 功能逻辑 ---
 do_install() {
     echo -e "\n${YELLOW}[*] 正在安装 Dnsmasq...${NC}"
     if command -v apt-get >/dev/null; then
@@ -65,19 +64,16 @@ do_config() {
         sleep 2 && return
     fi
 
-    # 修复主配置
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
     grep -q "conf-dir=/etc/dnsmasq.d/,*.conf" $MAIN_CONF || echo "conf-dir=/etc/dnsmasq.d/,*.conf" >> $MAIN_CONF
     grep -q "server=8.8.8.8" $MAIN_CONF || { echo "server=8.8.8.8" >> $MAIN_CONF; echo "server=8.8.4.4" >> $MAIN_CONF; }
 
-    # 写入分流规则
     mkdir -p /etc/dnsmasq.d/
     echo "# Unlock Rules" > $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do
         echo "server=/$d/$dns_ip" >> $CONF_FILE
     done
 
-    # 系统接管
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     
@@ -96,7 +92,22 @@ do_clear() {
     sleep 2
 }
 
-# --- 启动环境检查 ---
+do_check() {
+    echo -e "\n${YELLOW}[*] 正在获取流媒体检测脚本...${NC}"
+    # 临时恢复 DNS 确保能下载脚本
+    chattr -i $RESOLV_CONF 2>/dev/null
+    original_dns=$(cat $RESOLV_CONF)
+    echo "nameserver 8.8.8.8" > $RESOLV_CONF
+    
+    bash <(curl -L -s https://github.com/1-stream/RegionRestrictionCheck/raw/main/check.sh)
+    
+    # 检测完恢复 DNS 设置
+    echo "$original_dns" > $RESOLV_CONF
+    echo -e "\n${CYAN}按回车键返回菜单...${NC}"
+    read < /dev/tty
+}
+
+# --- 运行环境检查 ---
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 必须使用 root 运行${NC}" && exit 1
 
 # --- 循环主程序 ---
@@ -106,8 +117,8 @@ while true; do
         1) do_install ;;
         2) do_config ;;
         3) do_clear ;;
-        4) echo -e "${BLUE}再见!${NC}"; exit 0 ;;
+        4) do_check ;;
+        0) echo -e "${BLUE}再见!${NC}"; exit 0 ;;
         *) echo -e "${RED}无效选项!${NC}"; sleep 1 ;;
     esac
 done
-
