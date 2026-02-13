@@ -1,6 +1,10 @@
 #!/bin/bash
 
-# --- 域名列表 ---
+# 强制转换换行符：如果脚本被 Windows 污染，这行会尝试清理当前进程环境
+# 这种“防御性”写法可以规避大部分由于 \r 导致的语法错误
+export LANG=en_US.UTF-8
+
+# 域名列表
 GOOGLE_DOMAINS=(google.com google.com.hk google.com.tw google.jp google.co.jp google.com.sg googleapis.com gstatic.com googleusercontent.com drive.google.com mail.google.com android.com play.google.com developer.android.com google-analytics.com googleadservices.com googletagmanager.com googlefonts.com gvt1.com)
 AI_DOMAINS=(openai.com chatgpt.com oaistatic.com oaiusercontent.com anthropic.com claude.ai gemini.google.com bard.google.com makeresuite.google.com perplexity.ai mistral.ai x.ai grok.com bing.com edgeservices.microsoft.com)
 STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com spotify.com scdn.co)
@@ -8,18 +12,21 @@ STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 RESOLV_CONF="/etc/resolv.conf"
 
-# 检查 Root
-[[ $EUID -ne 0 ]] && echo "Error: 请使用 root 用户运行此脚本。" && exit 1
+# 检查 Root 权限
+if [[ $EUID -ne 0 ]]; then
+   echo "错误：必须使用 root 权限运行！"
+   exit 1
+fi
 
 show_menu() {
-    echo "=============================="
-    echo "    DNS Unlocker for VPS"
-    echo "=============================="
+    echo "=================================="
+    echo "    DNS Unlocker (Fixed Edition)"
+    echo "=================================="
     echo "1. 安装 Dnsmasq"
-    echo "2. 配置解锁 DNS (接管系统)"
+    echo "2. 配置解锁 DNS"
     echo "3. 一键还原配置"
     echo "4. 退出"
-    echo "=============================="
+    echo "=================================="
     printf "请选择 [1-4]: "
     read choice
 }
@@ -30,42 +37,41 @@ do_install() {
         apt-get update && apt-get install -y dnsmasq
     elif command -v yum >/dev/null; then
         yum install -y dnsmasq
-    else
-        echo "暂不支持此系统发行版。"
-        return
     fi
     systemctl enable dnsmasq && systemctl start dnsmasq
-    echo "Dnsmasq 已就绪。"
+    echo "安装完成。"
 }
 
 do_config() {
-    printf "请输入你的解锁 DNS 地址 (如 1.2.3.4): "
+    printf "请输入解锁 DNS IP: "
     read dns_ip
-    [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "无效的 IP 地址。" && return
+    if [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "IP 格式无效！"
+        return
+    fi
 
     mkdir -p /etc/dnsmasq.d/
-    echo "# Streaming & AI Unlock" > $CONF_FILE
-
-    # 循环写入所有规则
-    for domain in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do
-        echo "server=/$domain/$dns_ip" >> $CONF_FILE
+    echo "# Unlock Rules" > $CONF_FILE
+    
+    # 写入规则
+    for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do
+        echo "server=/$d/$dns_ip" >> $CONF_FILE
     done
 
-    # 强制修改系统 DNS 指向本地
-    [ -f $RESOLV_CONF ] && chattr -i $RESOLV_CONF 2>/dev/null
+    # 设置系统 DNS
+    chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     
     systemctl restart dnsmasq
-    echo "配置已应用！系统 DNS 已设为 127.0.0.1。"
+    echo "配置已生效！系统 DNS 已指向 127.0.0.1"
 }
 
 do_clear() {
-    echo "正在恢复原始配置..."
     rm -f $CONF_FILE
-    [ -f $RESOLV_CONF ] && chattr -i $RESOLV_CONF 2>/dev/null
+    chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 8.8.8.8" > $RESOLV_CONF
     systemctl restart dnsmasq
-    echo "系统已恢复使用 8.8.8.8。"
+    echo "配置已还原。"
 }
 
 while true; do
@@ -75,6 +81,6 @@ while true; do
         2) do_config ;;
         3) do_clear ;;
         4) exit 0 ;;
-        *) echo "无效选项，请重新选择。" ;;
+        *) echo "无效选择" ;;
     esac
 done
