@@ -19,7 +19,7 @@ fi
 # --- 域名列表 ---
 GOOGLE_DOMAINS=(google.com google.com.hk google.com.tw google.jp google.co.jp google.com.sg googleapis.com gstatic.com googleusercontent.com drive.google.com mail.google.com android.com play.google.com developer.android.com google-analytics.com googleadservices.com googletagmanager.com googlefonts.com gvt1.com)
 AI_DOMAINS=(copilot.microsoft.com bing.com bing.com.hk edgeservices.microsoft.com githubcopilot.com api.githubcopilot.com copilot-proxy.githubusercontent.com github.com githubapp.com api.github.com openai.com chatgpt.com oaistatic.com oaiusercontent.com anthropic.com claude.ai gemini.google.com perplexity.ai x.ai grok.com mistral.ai)
-STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com spotify.com scdn.co)
+STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com scdn.co)
 
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
@@ -31,7 +31,7 @@ show_menu() {
     echo -e "${PURPLE}              DNS 流媒体 & AI 解锁 ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置解锁规则"
+    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁添加规则"
     echo -e "  ${RED}3.${NC} 还原系统配置"
     echo -e "  ${YELLOW}4.${NC} 运行解锁检测 ${CYAN}(by oneclickvirt)${NC}"
     echo -e "  ${BLUE}0.${NC} 退出脚本"
@@ -80,10 +80,12 @@ do_config() {
     
     if systemctl restart dnsmasq; then
         echo -e "${GREEN}[+] 解锁规则配置成功，Dnsmasq 已接管解析${NC}"
+        echo -ne "\n${CYAN}按回车键返回菜单...${NC}"
+        read < /dev/tty
     else
-        echo -e "${RED}[!] 规则生效失败，请检查系统日志${NC}"
+        echo -e "${RED}[!] 规则生效失败${NC}"
+        sleep 2
     fi
-    sleep 2
 }
 
 do_clear() {
@@ -107,7 +109,6 @@ do_check() {
     
     if ! command -v curl >/dev/null; then apt-get install -y curl || yum install -y curl; fi
     
-    # 运行原作者 oneclickvirt 的脚本
     curl -sL https://raw.githubusercontent.com/oneclickvirt/UnlockTests/main/ut_install.sh -sSf | bash
     
     echo -e "${GREEN}[+] oneclickvirt 检测工具启动成功...${NC}\n"
