@@ -37,7 +37,7 @@ show_menu() {
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
     echo -e "  ${GREEN}2.${NC} 配置分流解锁规则"
     echo -e "  ${RED}3.${NC} 还原系统配置"
-    echo -e "  ${YELLOW}4.${NC} 运行流媒体解锁检测"
+    echo -e "  ${YELLOW}4.${NC} 运行流媒体解锁检测 ${YELLOW}(UnlockTests)${NC}"
     echo -e "  ${BLUE}0.${NC} 退出脚本"
     draw_line
     echo -ne "${CYAN}请输入选项 [0-4]: ${NC}"
@@ -64,16 +64,19 @@ do_config() {
         sleep 2 && return
     fi
 
+    # 修复配置
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
     grep -q "conf-dir=/etc/dnsmasq.d/,*.conf" $MAIN_CONF || echo "conf-dir=/etc/dnsmasq.d/,*.conf" >> $MAIN_CONF
     grep -q "server=8.8.8.8" $MAIN_CONF || { echo "server=8.8.8.8" >> $MAIN_CONF; echo "server=8.8.4.4" >> $MAIN_CONF; }
 
+    # 写入分流
     mkdir -p /etc/dnsmasq.d/
     echo "# Unlock Rules" > $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do
         echo "server=/$d/$dns_ip" >> $CONF_FILE
     done
 
+    # 接管系统
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     
@@ -93,22 +96,24 @@ do_clear() {
 }
 
 do_check() {
-    echo -e "\n${YELLOW}[*] 正在获取流媒体检测脚本...${NC}"
-    # 临时恢复 DNS 确保能下载脚本
+    echo -e "\n${YELLOW}[*] 正在运行 UnlockTests 精准检测...${NC}"
+    # 临时切到本地 127.0.0.1 以确保检测的是 Dnsmasq 分流后的效果
     chattr -i $RESOLV_CONF 2>/dev/null
-    original_dns=$(cat $RESOLV_CONF)
-    echo "nameserver 8.8.8.8" > $RESOLV_CONF
+    echo "nameserver 127.0.0.1" > $RESOLV_CONF
     
-    bash <(curl -L -s https://github.com/1-stream/RegionRestrictionCheck/raw/main/check.sh)
+    # 运行指定的 UnlockTests 脚本
+    curl -sL https://raw.githubusercontent.com/oneclickvirt/UnlockTests/main/ut_install.sh -sSf | bash
     
-    # 检测完恢复 DNS 设置
-    echo "$original_dns" > $RESOLV_CONF
-    echo -e "\n${CYAN}按回车键返回菜单...${NC}"
+    echo -e "\n${CYAN}检测完成，按回车键返回菜单...${NC}"
     read < /dev/tty
 }
 
-# --- 运行环境检查 ---
+# --- 启动前环境修复 ---
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 必须使用 root 运行${NC}" && exit 1
+if systemctl is-active --quiet systemd-resolved; then
+    systemctl stop systemd-resolved
+    systemctl disable systemd-resolved
+fi
 
 # --- 循环主程序 ---
 while true; do
