@@ -7,9 +7,9 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
-NC='\033[0m' # 无颜色
+NC='\033[0m'
 
-# --- 域名列表 (保持不变) ---
+# --- 域名列表 ---
 GOOGLE_DOMAINS=(google.com google.com.hk google.com.tw google.jp google.co.jp google.com.sg googleapis.com gstatic.com googleusercontent.com drive.google.com mail.google.com android.com play.google.com developer.android.com google-analytics.com googleadservices.com googletagmanager.com googlefonts.com gvt1.com)
 AI_DOMAINS=(openai.com chatgpt.com oaistatic.com oaiusercontent.com anthropic.com claude.ai gemini.google.com bard.google.com makeresuite.google.com perplexity.ai mistral.ai x.ai grok.com bing.com edgeservices.microsoft.com)
 STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com spotify.com scdn.co)
@@ -18,7 +18,7 @@ CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
 
-# --- UI 组件 ---
+# --- UI 函数 ---
 draw_line() { echo -e "${CYAN}==================================================${NC}"; }
 
 show_menu() {
@@ -60,7 +60,7 @@ do_config() {
     echo -e "${YELLOW}[*] 正在优化 Dnsmasq 主配置...${NC}"
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
     grep -q "conf-dir=/etc/dnsmasq.d/,*.conf" $MAIN_CONF || echo "conf-dir=/etc/dnsmasq.d/,*.conf" >> $MAIN_CONF
-    grep -q "server=8.8.8.8" $MAIN_CONF || { echo "server=8.8.8.8" >> $MAIN_CONF; echo "server=1.1.1.1" >> $MAIN_CONF; }
+    grep -q "server=8.8.8.8" $MAIN_CONF || { echo "server=8.8.8.8" >> $MAIN_CONF; echo "server=8.8.4.4" >> $MAIN_CONF; }
 
     echo -e "${YELLOW}[*] 正在写入分流规则...${NC}"
     mkdir -p /etc/dnsmasq.d/
@@ -79,4 +79,30 @@ do_config() {
 }
 
 do_clear() {
-    echo -e "\n${RED}[*] 正在恢复初始状态...${NC
+    echo -e "\n${RED}[*] 正在恢复初始状态...${NC}"
+    rm -f $CONF_FILE
+    chattr -i $RESOLV_CONF 2>/dev/null
+    echo "nameserver 8.8.8.8" > $RESOLV_CONF
+    systemctl restart dnsmasq
+    echo -e "${GREEN}[+] 还原完成。${NC}"
+    sleep 2
+}
+
+# --- 启动环境检查 ---
+[[ $EUID -ne 0 ]] && echo -e "${RED}错误: 必须使用 root 运行${NC}" && exit 1
+if systemctl is-active --quiet systemd-resolved; then
+    systemctl stop systemd-resolved
+    systemctl disable systemd-resolved
+fi
+
+# --- 循环主程序 ---
+while true; do
+    show_menu
+    case "$choice" in
+        1) do_install ;;
+        2) do_config ;;
+        3) do_clear ;;
+        4) echo -e "${BLUE}再见!${NC}"; exit 0 ;;
+        *) echo -e "${RED}无效选项!${NC}"; sleep 1 ;;
+    esac
+done
