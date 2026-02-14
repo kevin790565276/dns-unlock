@@ -25,10 +25,34 @@ CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
 
+# --- 核心：获取状态逻辑 ---
+get_status() {
+    # 获取系统当前 nameserver
+    CURRENT_DNS=$(grep "nameserver" $RESOLV_CONF | awk '{print $2}' | head -n 1)
+    
+    # 获取解锁 IP (从配置文件中提取第一个匹配的 IP)
+    if [ -f "$CONF_FILE" ]; then
+        UNLOCK_IP=$(grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" $CONF_FILE | head -n 1)
+    else
+        UNLOCK_IP="未配置"
+    fi
+
+    # 格式化显示系统 DNS 状态
+    if [[ "$CURRENT_DNS" == "127.0.0.1" ]]; then
+        DNS_STATUS="${GREEN}已接管 (127.0.0.1)${NC}"
+    else
+        DNS_STATUS="${RED}直连 ($CURRENT_DNS)${NC}"
+    fi
+}
+
 show_menu() {
+    get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
     echo -e "${PURPLE}              DNS 流媒体 & AI 解锁 ${NC}"
+    echo -e "${CYAN}==================================================${NC}"
+    echo -e "  系统 DNS 状态: $DNS_STATUS"
+    echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
     echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁添加规则"
