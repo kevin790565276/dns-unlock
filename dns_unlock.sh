@@ -25,20 +25,21 @@ CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
 
-# --- 修复后的状态获取函数 ---
+# --- 彻底修复：状态获取逻辑 ---
 get_status() {
-    # 获取系统 nameserver
+    # 1. 获取系统 DNS (resolv.conf)
     CURRENT_DNS=$(grep "nameserver" $RESOLV_CONF | awk '{print $2}' | head -n 1)
     
-    # 修复：从配置文件精准提取 IP#端口 格式
+    # 2. 获取解锁 DNS (直接从配置文件抓取最后一部分)
     if [ -f "$CONF_FILE" ]; then
-        # 提取 server=/.../ 后的内容
-        UNLOCK_IP=$(grep "server=" "$CONF_FILE" | head -n 1 | awk -F'/' '{print $4}')
+        # 这里的逻辑是：找最后一行以 server= 开头的，把最后一个 / 之后的内容全部拿出来
+        # 例如 server=/google.com/1.1.1.1#53 -> 1.1.1.1#53
+        UNLOCK_IP=$(grep "server=" "$CONF_FILE" | tail -n 1 | sed 's|.*/||')
     else
         UNLOCK_IP=""
     fi
 
-    # 逻辑判断显示
+    # 3. 状态显示
     if [[ "$CURRENT_DNS" == "127.0.0.1" ]]; then
         DNS_STATUS="${GREEN}已接管 (127.0.0.1)${NC}"
     else
@@ -53,7 +54,6 @@ show_menu() {
     echo -e "${PURPLE}              DNS 流媒体 & AI 解锁 ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
-    # 如果为空显示未配置
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP:-未配置}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
@@ -66,6 +66,8 @@ show_menu() {
     read choice < /dev/tty
 }
 
+# --- 功能部分 (do_install, do_config, do_clear, do_check 保持之前逻辑) ---
+
 do_install() {
     echo -e "\n${YELLOW}[*] 正在安装 Dnsmasq...${NC}"
     if command -v apt-get >/dev/null; then apt-get update && apt-get install -y dnsmasq; else yum install -y dnsmasq; fi
@@ -75,17 +77,16 @@ do_install() {
 }
 
 do_config() {
-    echo -e "\n${YELLOW}提示: 普通 IP 直接输入 (例: 1.1.1.1)${NC}"
-    echo -e "${YELLOW}      NAT 端口使用 '#' 分隔 (例: 1.1.1.1#5353)${NC}"
+    echo -e "\n${YELLOW}提示: NAT 端口使用 '#' 分隔 (例: 1.1.1.1#5353)${NC}"
     echo -ne "${CYAN}请输入解锁 IP: ${NC}"
     read dns_ip < /dev/tty
 
-    if [[ ! $dns_ip =~ [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-        echo -e "${RED}[!] IP 格式无效${NC}"
+    if [[ -z "$dns_ip" ]]; then
+        echo -e "${RED}[!] 不能为空${NC}"
         sleep 2 && return
     fi
 
-    echo -e "${YELLOW}[*] 正在配置规则...${NC}"
+    echo -e "${YELLOW}[*] 正在写入配置...${NC}"
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
     grep -q "conf-dir=/etc/dnsmasq.d/,*.conf" $MAIN_CONF || echo "conf-dir=/etc/dnsmasq.d/,*.conf" >> $MAIN_CONF
     
@@ -128,7 +129,6 @@ do_check() {
     read < /dev/tty
 }
 
-# --- 环境检查 ---
 [[ $EUID -ne 0 ]] && exit 1
 if systemctl is-active --quiet systemd-resolved; then 
     systemctl stop systemd-resolved && systemctl disable systemd-resolved
