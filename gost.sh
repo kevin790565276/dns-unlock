@@ -1,47 +1,27 @@
 #!/bin/bash
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+# 1. 基础环境清理
+echo "正在清理环境..."
+systemctl stop systemd-resolved 2>/dev/null
+systemctl disable systemd-resolved 2>/dev/null
+systemctl stop dnsmasq 2>/dev/null
+systemctl disable dnsmasq 2>/dev/null
 
-echo -e "${GREEN}正在启动 Gost DNS 解锁服务端配置 (v2.0)...${NC}"
-
-# 1. 权限与工具检查
-[[ $EUID -ne 0 ]] && echo -e "${RED}错误: 请用 root 运行${NC}" && exit 1
-apt-get update && apt-get install -y wget curl gzip lsof || yum install -y wget curl gzip lsof
-
-# 2. 下载 Gost (自动识别架构)
+# 2. 下载并安装 Gost
+echo "正在安装 Gost..."
 ARCH=$(uname -m)
 GOST_VER="2.11.5"
 if [[ "$ARCH" == "x86_64" ]]; then
     URL="https://github.com/ginuerzh/gost/releases/download/v$GOST_VER/gost-linux-amd64-$GOST_VER.gz"
-elif [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
-    URL="https://github.com/ginuerzh/gost/releases/download/v$GOST_VER/gost-linux-armv8-$GOST_VER.gz"
 else
-    echo -e "${RED}不支持的架构: $ARCH${NC}" && exit 1
+    URL="https://github.com/ginuerzh/gost/releases/download/v$GOST_VER/gost-linux-armv8-$GOST_VER.gz"
 fi
 
 wget -qO- $URL | gzip -d > /usr/local/bin/gost
 chmod +x /usr/local/bin/gost
 
-# 3. 智能处理 53 端口占用
-echo -e "${GREEN}正在检查 53 端口...${NC}"
-# 仅当 systemd-resolved 存在时才操作
-if systemctl list-unit-files | grep -q systemd-resolved; then
-    echo "检测到 systemd-resolved，正在关闭..."
-    systemctl stop systemd-resolved
-    systemctl disable systemd-resolved
-    rm -f /etc/resolv.conf
-    echo "nameserver 8.8.8.8" > /etc/resolv.conf
-fi
-
-# 如果还是被其他进程占用（比如原有的 dnsmasq），直接提示
-OCCUPIED_BY=$(lsof -i :53 -sTCP:LISTEN -t)
-if [ ! -z "$OCCUPIED_BY" ]; then
-    echo -e "${RED}警告: 53 端口仍被 PID $OCCUPIED_BY 占用，请手动检查！${NC}"
-fi
-
-# 4. 写入并启动服务
+# 3. 写入 Systemd 服务 (核心逻辑：使用 DoT 彻底解决回环和劫持)
+echo "正在配置服务..."
 cat << EOF > /etc/systemd/system/gost-dns.service
 [Unit]
 Description=Gost DNS Unlock Service
@@ -49,22 +29,26 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gost -L udp://:53?dns=8.8.8.8,1.1.1.1
+# 使用加密 DoT 请求 Google DNS，强制获取真实 IP
+ExecStart=/usr/local/bin/gost -L udp://:53?dns=dot://8.8.8.8:853
 Restart=always
+User=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+# 4. 启动服务
 systemctl daemon-reload
 systemctl enable gost-dns
 systemctl restart gost-dns
 
-# 5. 完成提示
-SERVER_IP=$(curl -s ipv4.icanhazip.com)
-echo -e "${GREEN}------------------------------------------------${NC}"
-echo -e "部署成功！"
-echo -e "解锁机 DNS: ${RED}${SERVER_IP}${NC}"
-echo -e "状态检查: ${GREEN}$(systemctl is-active gost-dns)${NC}"
-echo -e "请务必在安全组开启 ${RED}UDP 53${NC} 端口！"
-echo -e "${GREEN}------------------------------------------------${NC}"
+# 5. 输出状态与结果
+IP=$(curl -s ifconfig.me)
+echo "------------------------------------------------"
+echo "部署成功！"
+echo "你的落地机解析服务已上线。"
+echo "落地机 IP: $IP"
+echo "请在中转机测试: nslookup netflix.com $IP"
+echo "------------------------------------------------"
+systemctl status gost-dns --no-pager
