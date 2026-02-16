@@ -2,7 +2,7 @@
 
 # VPS 网络优化脚本 - 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
 # 适用于 GitHub 部署，支持 NAT 小鸡和受限环境
-# 版本: 1.5.0
+# 版本: 1.6.0
 
 set -e
 
@@ -104,6 +104,17 @@ safe_sysctl() {
     fi
 }
 
+# 安全创建目录
+safe_mkdir() {
+    local dir=$1
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir" 2>/dev/null || true
+        if [ -d "$dir" ]; then
+            log_info "已创建目录: $dir"
+        fi
+    fi
+}
+
 # 备份配置文件
 backup_config() {
     local file=$1
@@ -117,6 +128,9 @@ backup_config() {
 # 优化 sysctl 配置
 optimize_sysctl() {
     log_info "正在优化 sysctl 配置 (模式: $OPTIMIZE_MODE)..."
+    
+    # 确保目录存在
+    safe_mkdir "/etc/sysctl.d"
     
     if [ -f "$SYSCTL_CONF" ]; then
         backup_config "$SYSCTL_CONF"
@@ -229,6 +243,9 @@ EOF
 optimize_limits() {
     log_info "正在优化 limits 配置..."
     
+    # 确保目录存在
+    safe_mkdir "/etc/security/limits.d"
+    
     if [ -f "$LIMITS_CONF" ]; then
         backup_config "$LIMITS_CONF"
     fi
@@ -252,6 +269,9 @@ optimize_journald() {
     log_info "正在优化 journald 配置..."
     
     if [ -d /etc/systemd/journald.conf.d ]; then
+        # 确保目录存在
+        safe_mkdir "/etc/systemd/journald.conf.d"
+        
         if [ -f "$JOURNALD_CONF" ]; then
             backup_config "$JOURNALD_CONF"
         fi
@@ -446,7 +466,7 @@ disable_unnecessary_services() {
     
     local services=("apparmor" "ufw" "firewalld" "apache2" "httpd" "named" "sendmail")
     
-    for service in "${services[@]}"; do
+    for service in "${services[@]}; do
         if systemctl is-active --quiet "$service" 2>/dev/null; then
             systemctl stop "$service" 2>/dev/null || true
             systemctl disable "$service" 2>/dev/null || true
@@ -564,13 +584,13 @@ show_mode_menu() {
     echo -e "${PURPLE}请选择优化模式:${NC}"
     echo ""
     echo "  1. TCP+UDP 双模式 (默认) - 适合所有协议"
-    echo "     包含: xhttp, v2ray, vmess, Hysteria 2, QUIC"
+    echo "     包含: xhttp, v2ray, vmess, Hysteria 2, QUIC)"
     echo ""
     echo "  2. 仅 TCP 模式 - 适合 TCP 协议"
-    echo "     包含: xhttp, v2ray, vmess"
+    echo "     包含: xhttp, v2ray, vmess)"
     echo ""
     echo "  3. 仅 UDP 模式 - 适合 UDP 协议"
-    echo "     包含: Hysteria 2, QUIC"
+    echo "     包含: Hysteria 2, QUIC)"
     echo ""
     echo -ne "${YELLOW}请输入选项 [1-3, 默认1]: ${NC}"
 }
@@ -581,13 +601,13 @@ show_menu() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════╗"
     echo "║    VPS 网络优化脚本 - 支持 TCP 和 UDP          ║"
-    echo "║              版本 1.5.0 - 支持 NAT 小鸡        ║"
+    echo "║              版本 1.6.0 - 支持 NAT 小鸡        ║"
     echo "╚═══════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
     echo -e "${BLUE}支持的协议:${NC}"
-    echo "  TCP: xhttp, v2ray, vmess, trojan"
-    echo "  UDP: Hysteria 2, QUIC"
+    echo "  TCP: xhttp, v2ray, vmess, trojan)"
+    echo "  UDP: Hysteria 2, QUIC)"
     echo ""
     echo -e "${PURPLE}环境支持:${NC}"
     echo "  ✅ 独立服务器/KVM"
@@ -705,8 +725,8 @@ show_help() {
     echo "  $0 --restore                # 还原配置"
     echo ""
     echo "支持的协议:"
-    echo "  TCP: xhttp, v2ray, vmess, trojan"
-    echo "  UDP: Hysteria 2, QUIC"
+    echo "  TCP: xhttp, v2ray, vmess, trojan)"
+    echo "  UDP: Hysteria 2, QUIC)"
     echo ""
     echo "环境支持:"
     echo "  ✅ 独立服务器/KVM"
