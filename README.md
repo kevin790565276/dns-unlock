@@ -27,7 +27,7 @@ curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_u
 
 | 协议类型 | 支持的协议 |
 |---------|-----------|
-| **TCP** | xhttp, vless, vmess, trojan, shadowsocks |
+| **TCP** | xhttp, v2ray, vmess, trojan, shadowsocks |
 | **UDP** | Hysteria 2, QUIC |
 
 ## 快速开始
