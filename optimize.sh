@@ -15,15 +15,15 @@ restore_sysctl() {
     echo -e "\n${YELLOW}正在尝试还原内核参数...${NC}"
     if [ -f /etc/sysctl.conf.bak ]; then
         mv /etc/sysctl.conf.bak /etc/sysctl.conf
-        sysctl -p > /dev/null 2>&1
+        echo -e "${CYAN}正在重新加载原始配置...${NC}"
+        sysctl -p
         echo -e "${GREEN}✅ 已成功恢复原始备份配置！${NC}"
     else
-        # 如果没有备份，则清空当前配置并写入系统默认的基础转发
         cat > /etc/sysctl.conf << EOF
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
 EOF
-        sysctl -p > /dev/null 2>&1
+        sysctl -p
         echo -e "${YELLOW}提示: 未找到备份文件，已初始化为基础转发配置。${NC}"
     fi
     echo -e "${CYAN}-------------------------------------------------${NC}\n"
@@ -70,14 +70,13 @@ case $choice in
         ;;
 esac
 
-# 备份原始配置（仅在不存在备份时备份）
+# 备份配置
 if [ ! -f /etc/sysctl.conf.bak ]; then
+    echo -e "${CYAN}正在备份原始配置到 /etc/sysctl.conf.bak...${NC}"
     cp /etc/sysctl.conf /etc/sysctl.conf.bak
 fi
 
-echo -e "\n${YELLOW}正在应用 $MODE 优化方案...${NC}"
-
-# 写入内核参数
+echo -e "\n${YELLOW}1. 正在写入优化参数到 /etc/sysctl.conf...${NC}"
 cat > /etc/sysctl.conf << EOF
 # 基础优化
 net.ipv4.ip_forward = 1
@@ -104,21 +103,20 @@ net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_mtu_probing = 1
 EOF
 
-# 使配置生效
-sysctl -p > /dev/null 2>&1
+echo -e "${YELLOW}2. 正在加载内核参数（执行 sysctl -p）:${NC}"
+sysctl -p
 
-# 静默安装 haveged
+echo -e "\n${YELLOW}3. 正在检查并安装 haveged (增强熵值):${NC}"
 if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y -qq haveged >/dev/null 2>&1
+    apt-get update && apt-get install -y haveged
 elif command -v yum >/dev/null 2>&1; then
-    yum install -y -q haveged >/dev/null 2>&1
+    yum install -y haveged
 fi
-systemctl enable haveged > /dev/null 2>&1 && systemctl start haveged > /dev/null 2>&1
+systemctl enable haveged && systemctl start haveged
 
 echo -e "\n${CYAN}-------------------------------------------------${NC}"
 echo -e "${GREEN}✅ 优化成功配置！${NC}"
 echo -e "当前模式: ${YELLOW}$MODE${NC}"
-echo -e "原始备份: ${CYAN}/etc/sysctl.conf.bak${NC}"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
 # 自动清理
