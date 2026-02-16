@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# VPS 网络优化脚本 - 针对 Hysteria 2 (hy2) 优化
+# VPS 网络优化脚本 - 支持 Hysteria 2 (UDP) 和 TCP (xhttp, v2ray等)
 # 适用于 GitHub 部署
-# 版本: 1.2.0
+# 版本: 1.3.0
 
 set -e
 
@@ -20,6 +20,9 @@ NC='\033[0m'
 SYSCTL_CONF="/etc/sysctl.d/99-hy2-network.conf"
 LIMITS_CONF="/etc/security/limits.d/99-hy2-limits.conf"
 JOURNALD_CONF="/etc/systemd/journald.conf.d/99-hy2-journald.conf"
+
+# 优化模式
+OPTIMIZE_MODE="both" # both, tcp, udp
 
 # 日志函数
 log_info() {
@@ -71,27 +74,42 @@ backup_config() {
 
 # 优化 sysctl 配置
 optimize_sysctl() {
-    log_info "正在优化 sysctl 配置..."
+    log_info "正在优化 sysctl 配置 (模式: $OPTIMIZE_MODE)..."
     
     if [ -f "$SYSCTL_CONF" ]; then
         backup_config "$SYSCTL_CONF"
     fi
     
     cat > "$SYSCTL_CONF" << 'EOF'
-# 针对 Hysteria 2 的网络优化配置
-# BBR 拥塞控制
+# VPS 网络优化配置
+# 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
+EOF
+
+    # BBR 拥塞控制 (TCP)
+    cat >> "$SYSCTL_CONF" << 'EOF'
+
+# BBR 拥塞控制 (TCP优化)
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
+EOF
 
-# 提升网络缓冲区
+    # 网络缓冲区 (通用)
+    cat >> "$SYSCTL_CONF" << 'EOF'
+
+# 提升网络缓冲区 (通用)
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
 net.core.rmem_default = 65536
 net.core.wmem_default = 65536
 net.core.optmem_max = 65536
 net.core.somaxconn = 65535
+EOF
 
-# TCP 优化
+    # TCP 优化
+    if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "tcp" ]; then
+        cat >> "$SYSCTL_CONF" << 'EOF'
+
+# TCP 优化 (xhttp, v2ray, vmess等)
 net.ipv4.tcp_rmem = 4096 87380 67108864
 net.ipv4.tcp_wmem = 4096 65536 67108864
 net.ipv4.tcp_syncookies = 1
@@ -107,15 +125,28 @@ net.ipv4.tcp_fin_timeout = 30
 net.ipv4.tcp_max_syn_backlog = 65535
 net.ipv4.ip_local_port_range = 1024 65535
 net.ipv4.tcp_max_tw_buckets = 2000000
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+EOF
+    fi
 
-# UDP 优化（Hysteria 2 使用 UDP）
+    # UDP 优化
+    if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "udp" ]; then
+        cat >> "$SYSCTL_CONF" << 'EOF'
+
+# UDP 优化 (Hysteria 2, QUIC等)
 net.core.netdev_max_backlog = 65535
 net.core.rps_sock_flow_entries = 32768
 net.ipv4.udp_rmem_min = 8192
 net.ipv4.udp_wmem_min = 8192
 net.ipv4.udp_mem = 65536 131072 262144
+EOF
+    fi
 
-# 其他优化
+    # 其他优化
+    cat >> "$SYSCTL_CONF" << 'EOF'
+
+# 其他优化 (通用)
 net.ipv4.conf.all.rp_filter = 0
 net.ipv4.conf.default.rp_filter = 0
 net.ipv4.icmp_echo_ignore_broadcasts = 1
@@ -237,8 +268,12 @@ optimize_firewall() {
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
     
-    iptables -t raw -A PREROUTING -p udp -j NOTRACK
-    iptables -t raw -A OUTPUT -p udp -j NOTRACK
+    # UDP 不跟踪 (仅在UDP模式或双模式下)
+    if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "udp" ]; then
+        iptables -t raw -A PREROUTING -p udp -j NOTRACK
+        iptables -t raw -A OUTPUT -p udp -j NOTRACK
+        log_info "已启用 UDP NOTRACK"
+    fi
     
     if command -v netfilter-persistent &> /dev/null; then
         netfilter-persistent save
@@ -272,6 +307,7 @@ perform_optimize() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════╗"
     echo "║              开始执行网络优化                   ║"
+    echo "║         优化模式: ${OPTIMIZE_MODE^^}${NC}${CYAN}"
     echo "╚═══════════════════════════════════════════════╝"
     echo -e "${NC}"
     
@@ -288,7 +324,7 @@ perform_optimize() {
     
     echo ""
     echo -e "${CYAN}========================================${NC}"
-    echo -e "${CYAN}   VPS 网络优化完成 - 针对 Hysteria 2${NC}"
+    echo -e "${CYAN}   VPS 网络优化完成${NC}"
     echo -e "${CYAN}========================================${NC}"
     echo ""
     echo -e "${GREEN}已完成的优化:${NC}"
@@ -299,6 +335,16 @@ perform_optimize() {
     echo "  ✅ 系统日志优化"
     echo "  ✅ 中断平衡优化"
     echo "  ✅ 禁用不必要的服务"
+    echo ""
+    echo -e "${BLUE}适用协议:${NC}"
+    if [ "$OPTIMIZE_MODE" = "both" ]; then
+        echo "  TCP (xhttp, v2ray, vmess)"
+        echo "  UDP (Hysteria 2, QUIC)"
+    elif [ "$OPTIMIZE_MODE" = "tcp" ]; then
+        echo "  TCP (xhttp, v2ray, vmess)"
+    else
+        echo "  UDP (Hysteria 2, QUIC)"
+    fi
     echo ""
     echo -e "${YELLOW}建议:${NC}"
     echo "  1. 重启系统以应用所有优化"
@@ -345,15 +391,36 @@ restore_config() {
     log_success "配置还原完成，建议重启系统"
 }
 
+# 显示模式选择菜单
+show_mode_menu() {
+    echo ""
+    echo -e "${PURPLE}请选择优化模式:${NC}"
+    echo ""
+    echo "  1. TCP+UDP 双模式 (默认) - 适合所有协议"
+    echo "     包含: xhttp, v2ray, vmess, Hysteria 2, QUIC"
+    echo ""
+    echo "  2. 仅 TCP 模式 - 适合 TCP 协议"
+    echo "     包含: xhttp, v2ray, vmess"
+    echo ""
+    echo "  3. 仅 UDP 模式 - 适合 UDP 协议"
+    echo "     包含: Hysteria 2, QUIC"
+    echo ""
+    echo -ne "${YELLOW}请输入选项 [1-3, 默认1]: ${NC}"
+}
+
 # 显示菜单
 show_menu() {
     clear
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════╗"
-    echo "║    VPS 网络优化脚本 - Hysteria 2 专用版       ║"
-    echo "║                  版本 1.2.0                     ║"
+    echo "║    VPS 网络优化脚本 - 支持 TCP 和 UDP          ║"
+    echo "║                  版本 1.3.0                     ║"
     echo "╚═══════════════════════════════════════════════╝"
     echo -e "${NC}"
+    echo ""
+    echo -e "${BLUE}支持的协议:${NC}"
+    echo "  TCP: xhttp, v2ray, vmess, trojan"
+    echo "  UDP: Hysteria 2, QUIC"
     echo ""
     echo -e "${GREEN}请选择操作:${NC}"
     echo ""
@@ -376,6 +443,12 @@ main() {
                 exit 0
                 ;;
             --optimize)
+                OPTIMIZE_MODE="${2:-both}"
+                if [ "$OPTIMIZE_MODE" != "both" ] && [ "$OPTIMIZE_MODE" != "tcp" ] && [ "$OPTIMIZE_MODE" != "udp" ]; then
+                    log_error "无效的优化模式: $OPTIMIZE_MODE"
+                    show_help
+                    exit 1
+                fi
                 perform_optimize
                 exit 0
                 ;;
@@ -398,6 +471,26 @@ main() {
         
         case $choice in
             1)
+                # 选择优化模式
+                show_mode_menu
+                read -r mode_choice
+                
+                case $mode_choice in
+                    1|"")
+                        OPTIMIZE_MODE="both"
+                        ;;
+                    2)
+                        OPTIMIZE_MODE="tcp"
+                        ;;
+                    3)
+                        OPTIMIZE_MODE="udp"
+                        ;;
+                    *)
+                        log_error "无效选项，使用默认模式 (both)"
+                        OPTIMIZE_MODE="both"
+                        ;;
+                esac
+                
                 perform_optimize
                 echo ""
                 read -n 1 -s -p "按任意键返回菜单..."
@@ -423,19 +516,26 @@ main() {
 
 # 显示帮助
 show_help() {
-    echo "VPS 网络优化脚本 - Hysteria 2 专用版"
+    echo "VPS 网络优化脚本 - 支持 TCP 和 UDP"
     echo ""
     echo "用法: $0 [选项]"
     echo ""
     echo "选项:"
-    echo "  --optimize    直接执行优化"
-    echo "  --restore     直接还原配置"
-    echo "  --help        显示帮助信息"
+    echo "  --optimize [模式]  直接执行优化"
+    echo "                     模式: both (默认), tcp, udp"
+    echo "  --restore           直接还原配置"
+    echo "  --help              显示帮助信息"
     echo ""
     echo "示例:"
-    echo "  $0              # 进入交互式菜单"
-    echo "  $0 --optimize   # 直接执行优化"
-    echo "  $0 --restore    # 直接还原配置"
+    echo "  $0                          # 进入交互式菜单"
+    echo "  $0 --optimize               # 双模式优化 (TCP+UDP)"
+    echo "  $0 --optimize tcp           # 仅 TCP 优化 (xhttp, v2ray)"
+    echo "  $0 --optimize udp           # 仅 UDP 优化 (Hysteria 2)"
+    echo "  $0 --restore                # 还原配置"
+    echo ""
+    echo "支持的协议:"
+    echo "  TCP: xhttp, v2ray, vmess, trojan"
+    echo "  UDP: Hysteria 2, QUIC"
     echo ""
 }
 
