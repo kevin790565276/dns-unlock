@@ -30,4 +30,4 @@ curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_u
 在终端执行以下命令：
 
 ```bash
-curl -sL [https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh](https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh) | sudo bash
+curl -sL [https://raw.githubusercontent.com/kevin790565276/dns-unlock/refs/heads/main/optimize.sh](https://raw.githubusercontent.com/kevin790565276/dns-unlock/refs/heads/main/optimize.sh) | sudo bash
