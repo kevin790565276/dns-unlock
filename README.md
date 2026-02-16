@@ -6,7 +6,7 @@
 在你的 **（中转机）** 上运行以下命令：
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_unlock.sh | tr -d '\r' > dns_unlock.sh && bash dns_unlock.sh
+curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_unlock.sh | tr -d '\r' > dns_unlock.sh && bash dns_unlock.sh```
 
 ---
 
@@ -21,4 +21,4 @@ curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_u
 在终端执行以下命令：
 
 ```bash
-curl -sL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh | sudo bash```
