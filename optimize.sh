@@ -35,49 +35,49 @@ esac
 
 [[ ! -f /etc/sysctl.conf.bak ]] && cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
-# --- 修改部分：让参数重新显现 ---
 echo -e "\n${YELLOW}1. 正在准备 Hy2 核心优化参数...${NC}"
 echo -e "   ${CYAN}# 扩大堆货区: net.core.netdev_max_backlog=10000${NC}"
 echo -e "   ${CYAN}# 增加 CPU 处理上限: net.core.netdev_budget=600${NC}"
 echo -e "   ${CYAN}# 增加 CPU 处理权重: net.core.netdev_budget_usecs=20000${NC}"
 echo -e "   ${CYAN}# 调整 TCP/UDP 缓冲区: $MODE${NC}"
 
-# 写入临时配置文件
-cat > /etc/sysctl.d/99-optimize.conf << EOF
-net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.core.netdev_max_backlog = 10000
-net.core.netdev_budget = 600
-net.core.netdev_budget_usecs = 20000
-net.core.rmem_max = $BUF
-net.core.wmem_max = $BUF
-net.ipv4.tcp_rmem = 4096 87380 $BUF
-net.ipv4.tcp_wmem = 4096 65536 $BUF
-net.ipv4.tcp_max_syn_backlog = 16384
-net.core.somaxconn = 16384
-net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_fin_timeout = 20
-net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_mtu_probing = 1
+# 写入临时文件
+cat > /tmp/sysctl_opt.conf << EOF
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.core.netdev_max_backlog=10000
+net.core.netdev_budget=600
+net.core.netdev_budget_usecs=20000
+net.core.rmem_max=$BUF
+net.core.wmem_max=$BUF
+net.ipv4.tcp_rmem=4096 87380 $BUF
+net.ipv4.tcp_wmem=4096 65536 $BUF
+net.ipv4.tcp_max_syn_backlog=16384
+net.core.somaxconn=16384
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_fin_timeout=20
+net.ipv4.tcp_keepalive_time=600
+net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_mtu_probing=1
 EOF
 
 echo -e "\n${YELLOW}2. 执行配置应用 (逐行检测兼容性):${NC}"
 
-# 逐行加载并显示结果
-while IFS= read -r line; do
-    [[ "$line" =~ ^#.* ]] || [[ -z "$line" ]] && continue
-    key=$(echo $line | cut -d'=' -f1 | tr -d ' ')
-    value=$(echo $line | cut -d'=' -f2 | tr -d ' ')
+# 改进的解析逻辑，精准保留空格
+while IFS='=' read -r key value; do
+    [[ -z "$key" || "$key" =~ ^# ]] && continue
     if sysctl -w "$key=$value" >/dev/null 2>&1; then
         echo -e "   ${GREEN}[OK]${NC} $key = $value"
+        # 同步写入系统配置文件，确保重启有效
+        sed -i "/^$key/d" /etc/sysctl.conf
+        echo "$key = $value" >> /etc/sysctl.conf
     else
         echo -e "   ${RED}[SKIP]${NC} $key (系统内核锁定)"
     fi
-done < /etc/sysctl.d/99-optimize.conf
+done < /tmp/sysctl_opt.conf
 
 echo -e "\n${YELLOW}3. 检查并安装 haveged...${NC}"
 if command -v apt-get >/dev/null 2>&1; then
@@ -90,7 +90,7 @@ systemctl enable haveged > /dev/null 2>&1 && systemctl start haveged > /dev/null
 echo -e "\n${CYAN}-------------------------------------------------${NC}"
 echo -e "${GREEN}✅ 优化配置尝试完成！${NC}"
 echo -e "虚拟化架构: ${YELLOW}$(systemd-detect-virt 2>/dev/null || echo "unknown")${NC}"
-echo -e "提示: 如果出现 [SKIP]，说明该项在 NAT/OpenVZ 小鸡上无法修改，属于正常现象。"
+echo -e "提示: 如果 KVM 架构仍出现 SKIP，请检查是否为精简版内核。${NC}"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
-rm -f optimize.sh
+rm -f /tmp/sysctl_opt.conf optimize.sh
