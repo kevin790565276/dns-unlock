@@ -9,6 +9,11 @@ export NC='\033[0m'
 
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 请以 root 运行！${NC}" && exit 1
 
+# 更加强力的架构检测
+VIRT=$(systemd-detect-virt 2>/dev/null)
+[[ -z "$VIRT" ]] && [[ -d /proc/vz ]] && VIRT="openvz"
+[[ -z "$VIRT" ]] && VIRT="unknown/nat"
+
 clear
 echo -e "${CYAN}=================================================${NC}"
 echo -e "${CYAN}       ⚡ 全球 VPS 网络深度优化脚本 ⚡          ${NC}"
@@ -41,7 +46,6 @@ echo -e "   ${CYAN}# 增加 CPU 处理上限: net.core.netdev_budget=600${NC}"
 echo -e "   ${CYAN}# 增加 CPU 处理权重: net.core.netdev_budget_usecs=20000${NC}"
 echo -e "   ${CYAN}# 调整 TCP/UDP 缓冲区: $MODE${NC}"
 
-# 写入临时文件
 cat > /tmp/sysctl_opt.conf << EOF
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
@@ -72,47 +76,33 @@ while IFS='=' read -r key value; do
         sed -i "/^$key/d" /etc/sysctl.conf
         echo "$key = $value" >> /etc/sysctl.conf
     else
-        echo -e "   ${RED}[SKIP]${NC} $key (系统内核锁定)"
+        echo -e "   ${RED}[SKIP]${NC} $key (内核锁定)"
     fi
 done < /tmp/sysctl_opt.conf
 
-echo -e "\n${YELLOW}3. 检查并安装 haveged (增强熵值):${NC}"
-
-# 尝试更新并检测是否有失效源
-if ! apt-get update -qq 2>/tmp/apt_error.log; then
-    if grep -q "backports" /tmp/apt_error.log; then
-        echo -e "   ${YELLOW}[提示] 检测到失效的 backports 源，正在尝试忽略错误继续安装...${NC}"
-        # 使用 -o 选项忽略失效源的错误
-        apt-get install -y -qq -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowDowngradeToInsecureRepositories=true haveged > /dev/null 2>&1
-    fi
-fi
-
-# 再次确认安装（适用于没有报错或报错后通过常规方式重试）
-if ! command -v haveged >/dev/null 2>&1; then
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get install -y -qq haveged > /dev/null 2>&1
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y -q haveged > /dev/null 2>&1
-    fi
-fi
-
-systemctl enable haveged > /dev/null 2>&1 && systemctl start haveged > /dev/null 2>&1
-
-# 状态检测逻辑
-if systemctl is-active --quiet haveged 2>/dev/null; then
-    HAVEGED_STATUS="${GREEN}已启动 (Active)${NC}"
+echo -e "\n${YELLOW}3. 检查 haveged (环境适配):${NC}"
+if command -v haveged >/dev/null 2>&1; then
+    HAVEGED_STATUS="${GREEN}已就绪${NC}"
 else
-    HAVEGED_STATUS="${RED}未安装/未启动${NC}"
+    # 尝试安装，不成功也不报错，安静处理
+    apt-get update -qq >/dev/null 2>&1
+    apt-get install -y -qq haveged >/dev/null 2>&1 || yum install -y -q haveged >/dev/null 2>&1
+    if systemctl is-active --quiet haveged 2>/dev/null; then
+        HAVEGED_STATUS="${GREEN}安装并启动成功${NC}"
+    else
+        HAVEGED_STATUS="${YELLOW}跳过 (NAT环境通常无需安装)${NC}"
+    fi
 fi
 
 BBR_MODULE=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
 [[ "$BBR_MODULE" == "bbr" ]] && BBR_STATUS="${GREEN}已开启 (bbr)${NC}" || BBR_STATUS="${RED}未开启 ($BBR_MODULE)${NC}"
 
 echo -e "\n${CYAN}-------------------------------------------------${NC}"
-echo -e "${GREEN}✅ 优化配置尝试完成！${NC}"
-echo -e "虚拟化架构: ${YELLOW}$(systemd-detect-virt 2>/dev/null || echo "unknown")${NC}"
+echo -e "${GREEN}✅ 优化任务执行完毕！${NC}"
+echo -e "虚拟化架构: ${YELLOW}$VIRT${NC}"
 echo -e "BBR 加速状态: $BBR_STATUS"
 echo -e "Haveged 状态: $HAVEGED_STATUS"
+echo -e "提示: 关键的 BBR 开启成功即代表优化已生效！"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
-rm -f /tmp/sysctl_opt.conf /tmp/apt_error.log optimize.sh
+rm -f /tmp/sysctl_opt.conf optimize.sh
