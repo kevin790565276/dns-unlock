@@ -2,7 +2,7 @@
 
 # VPS 网络优化脚本 - 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
 # 适用于 GitHub 部署，支持 NAT 小鸡和受限环境
-# 版本: 1.7.0
+# 版本: 1.8.0
 
 set -e
 
@@ -55,11 +55,12 @@ detect_os() {
         . /etc/os-release
         OS=$ID
         OS_VERSION=$VERSION_ID
+        OS_CODENAME=${VERSION_CODENAME:-}
     else
         log_error "无法检测操作系统"
         exit 1
     fi
-    log_info "检测到操作系统: $OS $OS_VERSION"
+    log_info "检测到操作系统: $OS $OS_VERSION ${OS_CODENAME:+($OS_CODENAME)}"
 }
 
 # 检测是否为容器环境
@@ -74,7 +75,28 @@ detect_container() {
         IS_CONTAINER=1
     fi
     if [ "$IS_CONTAINER" -eq 1 ]; then
-        log_info "检测到容器环境，将跳过受限参数"
+        log_info "检测到容器环境 (NAT小鸡/OpenVZ/LXC)，将跳过受限参数"
+    fi
+}
+
+# 检查 BBR 支持
+check_bbr_support() {
+    log_info "检查 BBR 支持..."
+    
+    # 检查可用的拥塞控制算法
+    local available=$(sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | cut -d'=' -f2 | xargs)
+    log_info "可用的拥塞控制: $available"
+    
+    # 检查当前的拥塞控制
+    local current=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | cut -d'=' -f2 | xargs)
+    log_info "当前的拥塞控制: $current"
+    
+    if echo "$available" | grep -q bbr; then
+        log_success "系统支持 BBR"
+        return 0
+    else
+        log_warn "系统不支持 BBR"
+        return 1
     fi
 }
 
@@ -140,13 +162,17 @@ optimize_sysctl() {
 # VPS 网络优化配置
 EOF
 
+    # BBR 拥塞控制
     if [ "$IS_CONTAINER" -eq 0 ]; then
-        if check_sysctl_writable "net.core.default_qdisc"; then
-            cat >> "$temp_conf" << 'EOF'
+        if check_bbr_support; then
+            if check_sysctl_writable "net.core.default_qdisc"; then
+                cat >> "$temp_conf" << 'EOF'
 
+# BBR 拥塞控制
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 EOF
+            fi
         fi
     fi
 
@@ -158,6 +184,7 @@ EOF
     if [ "$has_net_core" -eq 1 ]; then
         cat >> "$temp_conf" << 'EOF'
 
+# 网络缓冲区
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
 net.core.rmem_default = 65536
@@ -170,6 +197,7 @@ EOF
     if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "tcp" ]; then
         cat >> "$temp_conf" << 'EOF'
 
+# TCP 优化
 net.ipv4.tcp_rmem = 4096 87380 67108864
 net.ipv4.tcp_wmem = 4096 65536 67108864
 net.ipv4.tcp_syncookies = 1
@@ -193,6 +221,7 @@ EOF
     if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "udp" ]; then
         cat >> "$temp_conf" << 'EOF'
 
+# UDP 优化
 net.core.netdev_max_backlog = 65535
 net.core.rps_sock_flow_entries = 32768
 net.ipv4.udp_rmem_min = 8192
@@ -203,6 +232,7 @@ EOF
 
     cat >> "$temp_conf" << 'EOF'
 
+# 其他优化
 net.ipv4.conf.all.rp_filter = 0
 net.ipv4.conf.default.rp_filter = 0
 net.ipv4.icmp_echo_ignore_broadcasts = 1
@@ -285,32 +315,6 @@ optimize_irqbalance() {
             systemctl enable --now irqbalance 2>/dev/null || true
             log_success "irqbalance 已启用"
         fi
-    fi
-}
-
-# 检查并启用 BBR
-enable_bbr() {
-    log_info "正在检查 BBR 状态..."
-    
-    if [ "$IS_CONTAINER" -eq 1 ]; then
-        log_info "容器环境，跳过 BBR 检测"
-        return
-    fi
-    
-    if modprobe tcp_bbr 2>/dev/null; then
-        if lsmod | grep -q bbr; then
-            log_success "BBR 已加载"
-        else
-            log_warn "BBR 未加载，尝试加载..."
-            modprobe tcp_bbr 2>/dev/null || true
-            if lsmod | grep -q bbr; then
-                log_success "BBR 已加载"
-            else
-                log_warn "无法加载 BBR"
-            fi
-        fi
-    else
-        log_warn "系统可能不支持 BBR"
     fi
 }
 
@@ -457,7 +461,6 @@ perform_optimize() {
     check_root
     detect_os
     detect_container
-    enable_bbr
     optimize_sysctl
     optimize_limits
     optimize_journald
@@ -482,11 +485,12 @@ perform_optimize() {
         echo "  - 禁用不必要的服务"
     fi
     echo ""
-    echo -e "${YELLOW}建议:${NC}"
-    echo "  1. 重启系统以应用所有优化"
-    if [ "$IS_CONTAINER" -eq 0 ]; then
-        echo "  2. 重启后运行: sysctl net.ipv4.tcp_congestion_control"
-    fi
+    echo -e "${YELLOW}重要:${NC}"
+    echo "  必须重启系统才能应用所有优化！"
+    echo ""
+    echo -e "${YELLOW}重启后验证:${NC}"
+    echo "  运行: sysctl net.ipv4.tcp_congestion_control"
+    echo "  期望输出: bbr"
     echo ""
 }
 
@@ -526,13 +530,68 @@ restore_config() {
     log_success "配置还原完成，建议重启系统"
 }
 
+# 检查当前状态
+check_status() {
+    clear
+    echo -e "${CYAN}"
+    echo "=========================================="
+    echo "       检查当前状态"
+    echo "=========================================="
+    echo -e "${NC}"
+    
+    check_root
+    detect_os
+    detect_container
+    
+    echo ""
+    echo -e "${BLUE}网络状态:${NC}"
+    
+    # 检查拥塞控制
+    local current_cc=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | cut -d'=' -f2 | xargs)
+    local available_cc=$(sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | cut -d'=' -f2 | xargs)
+    
+    echo "  当前拥塞控制: ${current_cc:-unknown}"
+    echo "  可用拥塞控制: ${available_cc:-unknown}"
+    
+    if [ "$current_cc" = "bbr" ]; then
+        echo -e "  ${GREEN}BBR 已启用${NC}"
+    else
+        echo -e "  ${YELLOW}BBR 未启用${NC}"
+    fi
+    
+    # 检查文件描述符
+    local ulimit_n=$(ulimit -n)
+    echo "  文件描述符限制: $ulimit_n"
+    
+    # 检查我们的配置文件
+    echo ""
+    echo -e "${BLUE}配置文件:${NC}"
+    
+    if [ -f "$SYSCTL_CONF" ]; then
+        echo -e "  ${GREEN}$SYSCTL_CONF 存在${NC}"
+    else
+        echo -e "  ${YELLOW}$SYSCTL_CONF 不存在${NC}"
+    fi
+    
+    if [ -f "$LIMITS_CONF" ]; then
+        echo -e "  ${GREEN}$LIMITS_CONF 存在${NC}"
+    else
+        echo -e "  ${YELLOW}$LIMITS_CONF 不存在${NC}"
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}提示:${NC}"
+    echo "  如果 BBR 未启用，请先运行优化，然后重启系统"
+    echo ""
+}
+
 # 显示菜单
 show_menu() {
     clear
     echo -e "${CYAN}"
     echo "=========================================="
     echo "    VPS 网络优化脚本"
-    echo "    版本 1.7.0"
+    echo "    版本 1.8.0"
     echo "=========================================="
     echo -e "${NC}"
     echo ""
@@ -540,9 +599,10 @@ show_menu() {
     echo ""
     echo "  1. 优化网络"
     echo "  2. 还原配置"
+    echo "  3. 检查状态"
     echo "  0. 退出脚本"
     echo ""
-    echo -ne "${YELLOW}请输入选项 [0-2]: ${NC}"
+    echo -ne "${YELLOW}请输入选项 [0-3]: ${NC}"
 }
 
 # 显示模式选择
@@ -574,6 +634,10 @@ main() {
                     exit 1
                 fi
                 perform_optimize
+                exit 0
+                ;;
+            --status)
+                check_status
                 exit 0
                 ;;
             *)
@@ -614,6 +678,11 @@ main() {
                 ;;
             2)
                 restore_config
+                echo ""
+                read -n 1 -s -p "按任意键返回菜单..."
+                ;;
+            3)
+                check_status
                 echo ""
                 read -n 1 -s -p "按任意键返回菜单..."
                 ;;
