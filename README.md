@@ -35,28 +35,28 @@ curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_u
 ### 交互式菜单模式
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/vps-network-optimizer/main/optimize-vps.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize-vps.sh)
 ```
 
 ### 命令行模式
 
 **TCP+UDP 双模式（推荐，适合所有协议）：**
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/vps-network-optimizer/main/optimize-vps.sh) --optimize both
+bash <(curl -fsSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize-vps.sh) --optimize both
 ```
 
 **仅 TCP 模式（适合 xhttp, v2ray）：**
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/vps-network-optimizer/main/optimize-vps.sh) --optimize tcp
+bash <(curl -fsSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize-vps.sh) --optimize tcp
 ```
 
 **仅 UDP 模式（适合 Hysteria 2）：**
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/vps-network-optimizer/main/optimize-vps.sh) --optimize udp
+bash <(curl -fsSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize-vps.sh) --optimize udp
 ```
 
 **还原配置：**
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/vps-network-optimizer/main/optimize-vps.sh) --restore
+bash <(curl -fsSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize-vps.sh) --restore
 ```
 
