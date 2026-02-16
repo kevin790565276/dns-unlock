@@ -1,11 +1,18 @@
-# 🚀 脚本合集 (DNS 解锁 & 网络优化)
+# 🚀 DNS 解锁流媒体一键脚本
+
+这是一个用于解锁流媒体的 DNS 服务端脚本。已经配好流媒体 AI 分流，除了 YouTube。
 
 ### 📖 使用方法
-点击右上角复制按钮，根据需求选择对应命令执行：
+在你的 **（中转机）** 上运行以下命令：
 
 ```bash
-# 1. DNS 解锁流媒体一键脚本 (中转机运行)
 curl -sSL [https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_unlock.sh](https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_unlock.sh) | tr -d '\r' > dns_unlock.sh && bash dns_unlock.sh
 
-# 2. 全球 VPS 网络深度优化脚本 (通用内核调优)
+⚡ 全球 VPS 网络深度优化脚本
+这是一个专门为 高延迟、长距离绕路线路 设计的内核优化脚本。特别针对 Hysteria 2 (Hy2) 和 高并发 TCP 进行了调优。
+
+🛠️ 一键安装
+在终端执行以下命令：
+
+Bash
 curl -sL [https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh](https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh) | sudo bash
