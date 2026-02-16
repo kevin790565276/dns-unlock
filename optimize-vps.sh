@@ -525,7 +525,7 @@ perform_optimize() {
     echo ""
     echo -e "${YELLOW}重启后验证:${NC}"
     echo "  运行: sysctl net.ipv4.tcp_congestion_control"
-    echo "  期望输出: bbr"
+    echo "  必须输出: bbr"
     echo ""
 }
 
@@ -640,7 +640,7 @@ show_menu() {
     echo -e "${CYAN}"
     echo "=========================================="
     echo "    VPS 网络优化脚本"
-    echo "    版本 1.9.0 - 强制启用 BBR"
+    echo "    版本 1.9.0 "
     echo "=========================================="
     echo -e "${NC}"
     echo ""
