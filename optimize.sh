@@ -1,85 +1,90 @@
 #!/bin/bash
 
-# ====================================================
-# Project: Global VPS Optimizer (Custom for High Latency)
-# Usage: curl -sL https://raw.githubusercontent.com/你的用户名/仓库名/main/opt.sh | sudo bash
-# ====================================================
+# 检查是否为 root 用户
+if [[ $EUID -ne 0 ]]; then
+   echo "此脚本必须以 root 权限运行！"
+   exit 1
+fi
 
-# 检查 Root 权限
-[[ $EUID -ne 0 ]] && echo "错误：请使用 root 用户运行此脚本！" && exit 1
+echo "================================================="
+echo "  ⚡ 全球 VPS 网络深度优化脚本 (增强版) "
+echo "================================================="
+echo "请选择您的线路类型："
+echo "1) 全球/美国/长距离绕路 (64M 缓冲区 - 延迟 >150ms)"
+echo "2) 港日/近距离/直连线路 (32M 缓冲区 - 延迟 <100ms)"
+read -p "请输入选项 [1-2, 默认1]: " choice
 
-echo "开始执行全球节点网络深度优化..."
+# 设置缓冲区大小
+if [ "$choice" == "2" ]; then
+    BUF_SIZE=33554432
+    MODE_NAME="港日/近距离线路 (32MB)"
+else
+    BUF_SIZE=67108864
+    MODE_NAME="全球/长距离线路 (64MB)"
+fi
 
-# 1. 备份 sysctl
-[[ -f /etc/sysctl.conf ]] && cp /etc/sysctl.conf /etc/sysctl.conf.bak
+echo "-------------------------------------------------"
+echo "正在为您执行 $MODE_NAME 优化方案..."
 
-# 2. 注入深度优化参数 (针对 Hy2, TCP BBR, 高延迟绕路)
+# 备份原始 sysctl 配置文件
+cp /etc/sysctl.conf /etc/sysctl.conf.bak
+
+# 写入内核参数
 cat > /etc/sysctl.conf << EOF
-# IPv6 支持
+# 基础网络转发
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
 net.ipv6.conf.all.disable_ipv6 = 0
 net.ipv6.conf.default.disable_ipv6 = 0
 net.ipv6.conf.lo.disable_ipv6 = 0
-net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1
 
-# BBR 拥塞控制
+# 拥塞控制与队列调度
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
-# 缓冲区极致优化 (针对 200ms+ 延迟，解决长肥网络瓶颈)
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.ipv4.tcp_rmem = 4096 87380 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
+# 关键缓冲区优化 (根据选择动态调整)
+net.core.rmem_max = $BUF_SIZE
+net.core.wmem_max = $BUF_SIZE
+net.ipv4.tcp_rmem = 4096 87380 $BUF_SIZE
+net.ipv4.tcp_wmem = 4096 65536 $BUF_SIZE
 net.core.rmem_default = 26214400
 net.core.wmem_default = 26214400
 
-# 高并发与连接队列优化
+# 并发与稳定性优化
 net.ipv4.tcp_max_syn_backlog = 16384
 net.core.somaxconn = 16384
 net.core.netdev_max_backlog = 10000
 net.ipv4.tcp_max_tw_buckets = 10000
 net.ipv4.ip_local_port_range = 1024 65535
-
-# 跨国链路保活与握手优化
 net.ipv4.tcp_syncookies = 1
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_fin_timeout = 20
 net.ipv4.tcp_keepalive_time = 600
 net.ipv4.tcp_synack_retries = 2
 net.ipv4.tcp_fastopen = 3
-
-# 网络效率提升
 net.ipv4.tcp_sack = 1
 net.ipv4.tcp_timestamps = 1
 net.ipv4.tcp_window_scaling = 1
 net.ipv4.tcp_mtu_probing = 1
-
-# 网卡处理预算
 net.core.netdev_budget = 600
 net.core.netdev_budget_usecs = 20000
 net.ipv4.ping_group_range = 0 2147483647
 EOF
 
-# 3. 应用配置
-sysctl -p && sysctl --system
+# 使配置生效
+sysctl -p
 
-# 4. 修复 Debian/Ubuntu 源并安装 haveged (补充熵池)
+# 安装 haveged 增强系统熵值（有助于加速加密传输）
 if [ -f /usr/bin/apt ]; then
-    echo "检测到 Debian/Ubuntu 系统，正在修复源并安装 haveged..."
-    sed -i '/backports/s/^/#/' /etc/apt/sources.list
-    apt-get update -o Acquire::Languages=none
-    apt-get install -y haveged
-    systemctl enable --now haveged
+    apt update && apt install -y haveged
 elif [ -f /usr/bin/yum ]; then
-    echo "检测到 CentOS/RHEL 系统..."
-    yum install -y epel-release && yum install -y haveged
-    systemctl enable --now haveged
+    yum install -y haveged
 fi
+systemctl enable haveged && systemctl start haveged
 
-echo "------------------------------------------------"
+echo "-------------------------------------------------"
 echo "✅ 优化已完成！"
-echo "当前算法: $(sysctl -n net.ipv4.tcp_congestion_control)"
-echo "当前队列: $(sysctl -n net.core.default_qdisc)"
-echo "最大缓冲区: $(sysctl -n net.core.rmem_max) 字节"
-echo "------------------------------------------------"
+echo "当前线路模式: $MODE_NAME"
+echo "当前拥塞算法: $(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')"
+echo "当前队列调度: $(sysctl net.core.default_qdisc | awk '{print $3}')"
+echo "-------------------------------------------------"
