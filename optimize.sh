@@ -1,3 +1,4 @@
+```bash
 #!/bin/bash
 
 # 检查是否为 root 用户
@@ -6,16 +7,17 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+clear
 echo "================================================="
-echo "  ⚡ 全球 VPS 网络深度优化脚本 (管道兼容版) "
+echo "  ⚡ 全球 VPS 网络深度优化脚本 "
 echo "================================================="
 echo "请选择您的线路类型："
-echo "1) 全球/美国/长距离绕路 (64M 缓冲区 - 延迟 >150ms)"
-echo "2) 港日/近距离/直连线路 (32M 缓冲区 - 延迟 <100ms)"
+echo "1) 全球/美国/长距离绕路 (64M 缓冲区 - 推荐延迟 >150ms)"
+echo "2) 港日/近距离/直连线路 (32M 缓冲区 - 推荐延迟 <100ms)"
 echo "-------------------------------------------------"
 
-# 终极修复：0<&2 强制脚本从终端读取输入，无视 curl 管道
-read -p "请输入选项 [1-2, 默认1]: " choice 0<&2
+# 在非管道模式下，最普通的 read 就能生效
+read -p "请输入选项 [1-2, 默认1]: " choice
 
 # 设置缓冲区大小
 if [ "$choice" == "2" ]; then
@@ -29,7 +31,7 @@ fi
 echo "-------------------------------------------------"
 echo "正在为您执行 $MODE_NAME 优化方案..."
 
-# 写入内核参数
+# 写入内核参数 (为了干净，这里直接全覆盖写入)
 cat > /etc/sysctl.conf << EOF
 # 基础网络转发
 net.ipv4.ip_forward = 1
@@ -74,15 +76,17 @@ EOF
 # 使配置生效
 sysctl -p
 
-# 安装 haveged
+# 安装 haveged (静默模式)
 if [ -f /usr/bin/apt ]; then
-    apt update && apt install -y haveged
+    apt update -qq && apt install -y -qq haveged > /dev/null 2>&1
 elif [ -f /usr/bin/yum ]; then
-    yum install -y haveged
+    yum install -y -q haveged > /dev/null 2>&1
 fi
-systemctl enable haveged && systemctl start haveged
+systemctl enable haveged > /dev/null 2>&1 && systemctl start haveged > /dev/null 2>&1
 
 echo "-------------------------------------------------"
 echo "✅ 优化已完成！"
 echo "当前线路模式: $MODE_NAME"
 echo "-------------------------------------------------"
+# 执行完后顺手删掉脚本
+rm -f optimize.sh
