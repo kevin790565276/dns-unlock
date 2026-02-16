@@ -6,22 +6,16 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# 强制定义输入源为控制台
-exec 3<&1
 echo "================================================="
-echo "  ⚡ 全球 VPS 网络深度优化脚本 (终端兼容版) "
+echo "  ⚡ 全球 VPS 网络深度优化脚本 (管道兼容版) "
 echo "================================================="
 echo "请选择您的线路类型："
 echo "1) 全球/美国/长距离绕路 (64M 缓冲区 - 延迟 >150ms)"
 echo "2) 港日/近距离/直连线路 (32M 缓冲区 - 延迟 <100ms)"
 echo "-------------------------------------------------"
 
-# 使用文件描述符 3 强制读取键盘输入
-printf "请输入选项 [1-2, 默认1]: "
-read choice <&3
-
-# 关闭文件描述符
-exec 3<&-
+# 终极修复：0<&2 强制脚本从终端读取输入，无视 curl 管道
+read -p "请输入选项 [1-2, 默认1]: " choice 0<&2
 
 # 设置缓冲区大小
 if [ "$choice" == "2" ]; then
@@ -48,7 +42,7 @@ net.ipv6.conf.lo.disable_ipv6 = 0
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
-# 关键缓冲区优化 (根据选择动态调整)
+# 关键缓冲区优化
 net.core.rmem_max = $BUF_SIZE
 net.core.wmem_max = $BUF_SIZE
 net.ipv4.tcp_rmem = 4096 87380 $BUF_SIZE
