@@ -76,15 +76,15 @@ if [ ! -f /etc/sysctl.conf.bak ]; then
     cp /etc/sysctl.conf /etc/sysctl.conf.bak
 fi
 
-echo -e "\n${YELLOW}1. 正在写入优化参数到 /etc/sysctl.conf...${NC}"
+echo -e "\n${YELLOW}1. 正在写入 Hy2 核心优化参数到 /etc/sysctl.conf...${NC}"
 cat > /etc/sysctl.conf << EOF
-# 基础优化
+# 基础转发与 BBR
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
-# 缓冲区优化
+# Hy2 缓冲区优化 (根据选择动态调整)
 net.core.rmem_max = $BUF
 net.core.wmem_max = $BUF
 net.ipv4.tcp_rmem = 4096 87380 $BUF
@@ -92,7 +92,12 @@ net.ipv4.tcp_wmem = 4096 65536 $BUF
 net.core.rmem_default = 26214400
 net.core.wmem_default = 26214400
 
-# 并发与稳定性
+# Hy2 CPU 队列与高吞吐调优 (你要求的 3 个核心参数)
+net.core.netdev_max_backlog = 10000
+net.core.netdev_budget = 600
+net.core.netdev_budget_usecs = 20000
+
+# 并发与稳定性增强
 net.ipv4.tcp_max_syn_backlog = 16384
 net.core.somaxconn = 16384
 net.ipv4.tcp_syncookies = 1
@@ -117,6 +122,10 @@ systemctl enable haveged && systemctl start haveged
 echo -e "\n${CYAN}-------------------------------------------------${NC}"
 echo -e "${GREEN}✅ 优化成功配置！${NC}"
 echo -e "当前模式: ${YELLOW}$MODE${NC}"
+echo -e "关键参数验证: "
+echo -e " - 接收缓冲区: ${CYAN}$(sysctl net.core.rmem_max | awk '{print $3}')${NC}"
+echo -e " - CPU 队列上限: ${CYAN}$(sysctl net.core.netdev_max_backlog | awk '{print $3}')${NC}"
+echo -e " - BBR 状态: ${CYAN}$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')${NC}"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
 # 自动清理
