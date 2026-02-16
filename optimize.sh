@@ -7,76 +7,33 @@ export YELLOW='\033[1;33m'
 export RED='\033[0;31m'
 export NC='\033[0m'
 
-# 检查 root
-[[ $EUID -ne 0 ]] && echo -e "${RED}错误: 请以 root 用户运行此脚本！${NC}" && exit 1
-
-# 还原功能的函数
-restore_sysctl() {
-    echo -e "\n${YELLOW}正在尝试还原内核参数...${NC}"
-    if [ -f /etc/sysctl.conf.bak ]; then
-        mv /etc/sysctl.conf.bak /etc/sysctl.conf
-        echo -e "${CYAN}正在重新加载原始配置...${NC}"
-        sysctl -p
-        echo -e "${GREEN}✅ 已成功恢复原始备份配置！${NC}"
-    else
-        cat > /etc/sysctl.conf << EOF
-net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1
-EOF
-        sysctl -p
-        echo -e "${YELLOW}提示: 未找到备份文件，已初始化为基础转发配置。${NC}"
-    fi
-    echo -e "${CYAN}-------------------------------------------------${NC}\n"
-}
+[[ $EUID -ne 0 ]] && echo -e "${RED}错误: 请以 root 运行！${NC}" && exit 1
 
 clear
 echo -e "${CYAN}=================================================${NC}"
 echo -e "${CYAN}       ⚡ 全球 VPS 网络深度优化脚本 ⚡          ${NC}"
 echo -e "${CYAN}=================================================${NC}"
-echo -e "请选择操作："
-echo -e ""
-echo -e "  ${GREEN}1)${NC} 全球/美国/长线优化 ${YELLOW}(64M 缓冲区)${NC}"
-echo -e "  ${GREEN}2)${NC} 港日/近距离/直连优化 ${YELLOW}(32M 缓冲区)${NC}"
-echo -e "  ${RED}3)${NC} 一键还原所有优化    ${RED}(恢复备份)${NC}"
-echo -e "  ${CYAN}0)${NC} 退出脚本"
-echo -e ""
-echo -e "${CYAN}-------------------------------------------------${NC}"
-
+echo -e "  1) 全球/美国/长线优化 (64M)\n  2) 港日/近距离/直连优化 (32M)\n  3) 一键还原\n  0) 退出"
 read -p "请输入选项 [0-3]: " choice
 
 case $choice in
-    1)
-        BUF=67108864
-        MODE="全球/长距离线路 (64MB)"
-        ;;
-    2)
-        BUF=33554432
-        MODE="港日/近距离线路 (32MB)"
-        ;;
-    3)
-        restore_sysctl
-        rm -f optimize.sh
-        exit 0
-        ;;
-    0)
-        echo -e "${YELLOW}已退出脚本。${NC}"
-        rm -f optimize.sh
-        exit 0
-        ;;
-    *)
-        echo -e "${RED}无效选项，脚本退出。${NC}"
-        rm -f optimize.sh
-        exit 1
-        ;;
+    1) BUF=67108864; MODE="全球/长距离 (64MB)" ;;
+    2) BUF=33554432; MODE="港日/近距离 (32MB)" ;;
+    3) 
+        if [ -f /etc/sysctl.conf.bak ]; then
+            mv /etc/sysctl.conf.bak /etc/sysctl.conf && sysctl -p
+            echo -e "${GREEN}还原成功${NC}"
+        fi
+        rm -f optimize.sh && exit 0 ;;
+    0) rm -f optimize.sh && exit 0 ;;
+    *) rm -f optimize.sh && exit 1 ;;
 esac
 
-# 备份配置
-if [ ! -f /etc/sysctl.conf.bak ]; then
-    echo -e "${CYAN}正在备份原始配置到 /etc/sysctl.conf.bak...${NC}"
-    cp /etc/sysctl.conf /etc/sysctl.conf.bak
-fi
+if [ ! -f /etc/sysctl.conf.bak ]; then cp /etc/sysctl.conf /etc/sysctl.conf.bak; fi
 
-echo -e "\n${YELLOW}1. 正在写入 Hy2 核心优化参数到 /etc/sysctl.conf...${NC}"
+echo -e "\n${YELLOW}1. 正在写入 Hy2 核心优化参数...${NC}"
+
+# 注意：我把那三行挪到了最显眼的位置
 cat > /etc/sysctl.conf << EOF
 # 基础转发与 BBR
 net.ipv4.ip_forward = 1
@@ -84,7 +41,12 @@ net.ipv6.conf.all.forwarding = 1
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
-# Hy2 缓冲区优化 (根据选择动态调整)
+# --- Hy2 关键 CPU 队列优化 ---
+net.core.netdev_max_backlog = 10000
+net.core.netdev_budget = 600
+net.core.netdev_budget_usecs = 20000
+
+# --- 缓冲区优化 ---
 net.core.rmem_max = $BUF
 net.core.wmem_max = $BUF
 net.ipv4.tcp_rmem = 4096 87380 $BUF
@@ -92,12 +54,7 @@ net.ipv4.tcp_wmem = 4096 65536 $BUF
 net.core.rmem_default = 26214400
 net.core.wmem_default = 26214400
 
-# Hy2 CPU 队列与高吞吐调优 (你要求的 3 个核心参数)
-net.core.netdev_max_backlog = 10000
-net.core.netdev_budget = 600
-net.core.netdev_budget_usecs = 20000
-
-# 并发与稳定性增强
+# --- 稳定性优化 ---
 net.ipv4.tcp_max_syn_backlog = 16384
 net.core.somaxconn = 16384
 net.ipv4.tcp_syncookies = 1
@@ -108,25 +65,24 @@ net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_mtu_probing = 1
 EOF
 
-echo -e "${YELLOW}2. 正在加载内核参数（执行 sysctl -p）:${NC}"
+echo -e "${YELLOW}2. 执行 sysctl -p (请留意下方输出):${NC}"
 sysctl -p
 
-echo -e "\n${YELLOW}3. 正在检查并安装 haveged (增强熵值):${NC}"
+echo -e "\n${YELLOW}3. 检查 haveged...${NC}"
 if command -v apt-get >/dev/null 2>&1; then
-    apt-get update && apt-get install -y haveged
+    apt-get update -qq && apt-get install -y -qq haveged > /dev/null 2>&1
 elif command -v yum >/dev/null 2>&1; then
-    yum install -y haveged
+    yum install -y -q haveged > /dev/null 2>&1
 fi
-systemctl enable haveged && systemctl start haveged
+systemctl enable haveged >/dev/null 2>&1 && systemctl start haveged >/dev/null 2>&1
 
 echo -e "\n${CYAN}-------------------------------------------------${NC}"
 echo -e "${GREEN}✅ 优化成功配置！${NC}"
 echo -e "当前模式: ${YELLOW}$MODE${NC}"
-echo -e "关键参数验证: "
-echo -e " - 接收缓冲区: ${CYAN}$(sysctl net.core.rmem_max | awk '{print $3}')${NC}"
-echo -e " - CPU 队列上限: ${CYAN}$(sysctl net.core.netdev_max_backlog | awk '{print $3}')${NC}"
-echo -e " - BBR 状态: ${CYAN}$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')${NC}"
+echo -e "关键验证: "
+# 强制手动查询一次，确保你看见结果
+echo -e " - CPU 队列上限: ${CYAN}$(sysctl net.core.netdev_max_backlog)${NC}"
+echo -e " - CPU 权重时长: ${CYAN}$(sysctl net.core.netdev_budget_usecs)${NC}"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
-# 自动清理
 rm -f optimize.sh
