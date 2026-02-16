@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# VPS 网络优化脚本 - 支持 Hysteria 2 (UDP) 和 TCP (xhttp, v2ray等)
+# VPS 网络优化脚本 - 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
 # 适用于 GitHub 部署
-# 版本: 1.3.0
+# 版本: 1.4.0
 
 set -e
 
@@ -55,11 +55,12 @@ detect_os() {
         . /etc/os-release
         OS=$ID
         OS_VERSION=$VERSION_ID
+        OS_CODENAME=${VERSION_CODENAME:-}
     else
         log_error "无法检测操作系统"
         exit 1
     fi
-    log_info "检测到操作系统: $OS $OS_VERSION"
+    log_info "检测到操作系统: $OS $OS_VERSION ${OS_CODENAME:+($OS_CODENAME)}"
 }
 
 # 备份配置文件
@@ -233,52 +234,115 @@ enable_bbr() {
     fi
 }
 
+# 临时禁用有问题的 backports 仓库
+disable_backports_repo() {
+    local sources_list="/etc/apt/sources.list"
+    local sources_d="/etc/apt/sources.list.d"
+    
+    # 注释掉 backports 仓库
+    if [ -f "$sources_list" ]; then
+        if grep -i backports "$sources_list" > /dev/null; then
+            backup_config "$sources_list"
+            sed -i '/backports/s/^/#/' "$sources_list"
+            log_info "已临时禁用 backports 仓库"
+        fi
+    fi
+    
+    # 检查 sources.list.d 目录
+    if [ -d "$sources_d" ]; then
+        for file in "$sources_d"/*.list; do
+            if [ -f "$file" ] && grep -i backports "$file" > /dev/null; then
+                backup_config "$file"
+                sed -i '/backports/s/^/#/' "$file"
+                log_info "已临时禁用 $file 中的 backports 仓库"
+            fi
+        done
+    fi
+}
+
 # 安装必要工具
 install_tools() {
     log_info "正在安装必要的网络工具..."
     
     case $OS in
         ubuntu|debian)
-            apt-get update
-            apt-get install -y iptables-persistent net-tools dnsutils ethtool irqbalance
+            # 先禁用有问题的 backports 仓库
+            disable_backports_repo
+            
+            # 更新包列表（忽略错误）
+            apt-get update || log_warn "apt-get update 有警告，继续执行"
+            
+            # 尝试安装工具，跳过不存在的包
+            local packages=("net-tools" "ethtool" "irqbalance")
+            
+            # 检查并添加可用的包
+            if apt-cache show iptables-persistent &> /dev/null; then
+                packages+=("iptables-persistent")
+            fi
+            
+            if apt-cache show dnsutils &> /dev/null; then
+                packages+=("dnsutils")
+            fi
+            
+            # 安装
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}" || log_warn "部分工具安装失败，继续执行"
             ;;
         centos|rhel|fedora)
-            yum install -y iptables-services net-tools bind-utils ethtool irqbalance
+            local packages=("net-tools" "ethtool" "irqbalance")
+            
+            if command -v yum &> /dev/null; then
+                if rpm -q iptables-services &> /dev/null || yum list available iptables-services &> /dev/null; then
+                    packages+=("iptables-services")
+                fi
+                if rpm -q bind-utils &> /dev/null || yum list available bind-utils &> /dev/null; then
+                    packages+=("bind-utils")
+                fi
+                yum install -y "${packages[@]}" || log_warn "部分工具安装失败，继续执行"
+            elif command -v dnf &> /dev/null; then
+                dnf install -y "${packages[@]}" || log_warn "部分工具安装失败，继续执行"
+            fi
             ;;
         *)
             log_warn "不支持的操作系统，跳过工具安装"
             ;;
     esac
     
-    log_success "网络工具安装完成"
+    log_success "网络工具安装完成（或跳过）"
 }
 
 # 优化防火墙规则
 optimize_firewall() {
     log_info "正在优化防火墙规则..."
     
-    iptables -F
-    iptables -X
-    iptables -t nat -F
-    iptables -t nat -X
-    iptables -t mangle -F
-    iptables -t mangle -X
+    # 检查 iptables 是否可用
+    if ! command -v iptables &> /dev/null; then
+        log_warn "iptables 不可用，跳过防火墙优化"
+        return
+    fi
     
-    iptables -P INPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-    iptables -P OUTPUT ACCEPT
+    iptables -F 2>/dev/null || true
+    iptables -X 2>/dev/null || true
+    iptables -t nat -F 2>/dev/null || true
+    iptables -t nat -X 2>/dev/null || true
+    iptables -t mangle -F 2>/dev/null || true
+    iptables -t mangle -X 2>/dev/null || true
+    
+    iptables -P INPUT ACCEPT 2>/dev/null || true
+    iptables -P FORWARD ACCEPT 2>/dev/null || true
+    iptables -P OUTPUT ACCEPT 2>/dev/null || true
     
     # UDP 不跟踪 (仅在UDP模式或双模式下)
     if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "udp" ]; then
-        iptables -t raw -A PREROUTING -p udp -j NOTRACK
-        iptables -t raw -A OUTPUT -p udp -j NOTRACK
+        iptables -t raw -A PREROUTING -p udp -j NOTRACK 2>/dev/null || true
+        iptables -t raw -A OUTPUT -p udp -j NOTRACK 2>/dev/null || true
         log_info "已启用 UDP NOTRACK"
     fi
     
+    # 尝试保存规则
     if command -v netfilter-persistent &> /dev/null; then
-        netfilter-persistent save
+        netfilter-persistent save 2>/dev/null || true
     elif command -v service &> /dev/null; then
-        service iptables save
+        service iptables save 2>/dev/null || true
     fi
     
     log_success "防火墙规则优化完成"
@@ -292,8 +356,8 @@ disable_unnecessary_services() {
     
     for service in "${services[@]}"; do
         if systemctl is-active --quiet "$service" 2>/dev/null; then
-            systemctl stop "$service"
-            systemctl disable "$service"
+            systemctl stop "$service" 2>/dev/null || true
+            systemctl disable "$service" 2>/dev/null || true
             log_info "已禁用服务: $service"
         fi
     done
@@ -385,7 +449,7 @@ restore_config() {
     
     # 重新加载 sysctl
     if [ -f /etc/sysctl.conf ]; then
-        sysctl -p /etc/sysctl.conf
+        sysctl -p /etc/sysctl.conf 2>/dev/null || true
     fi
     
     log_success "配置还原完成，建议重启系统"
@@ -414,7 +478,7 @@ show_menu() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════╗"
     echo "║    VPS 网络优化脚本 - 支持 TCP 和 UDP          ║"
-    echo "║                  版本 1.3.0                     ║"
+    echo "║                  版本 1.4.0                     ║"
     echo "╚═══════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
