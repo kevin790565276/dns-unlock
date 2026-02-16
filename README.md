@@ -8,11 +8,17 @@
 ```bash
 curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_unlock.sh | tr -d '\r' > dns_unlock.sh && bash dns_unlock.sh
 
-⚡ 全球 VPS 网络深度优化脚本
-这是一个专门为 高延迟、长距离绕路线路 设计的内核优化脚本。特别针对 Hysteria 2 (Hy2) 和 高并发 TCP 进行了调优。
+---
 
-🛠️ 一键安装
+### 第二步：在上面内容的下面，空两行，再贴这段（优化脚本）
+
+```markdown
+# ⚡ 全球 VPS 网络深度优化脚本
+
+这是一个专门为 **高延迟、长距离绕路线路** 设计的内核优化脚本。特别针对 **Hysteria 2 (Hy2)** 和 **高并发 TCP** 进行了调优。
+
+### 🛠️ 一键安装
 在终端执行以下命令：
 
-Bash
+```bash
 curl -sL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh | sudo bash
