@@ -77,26 +77,36 @@ while IFS='=' read -r key value; do
 done < /tmp/sysctl_opt.conf
 
 echo -e "\n${YELLOW}3. 检查并安装 haveged (增强熵值):${NC}"
-if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y -qq haveged > /dev/null 2>&1
-elif command -v yum >/dev/null 2>&1; then
-    yum install -y -q haveged > /dev/null 2>&1
+
+# 尝试更新并检测是否有失效源
+if ! apt-get update -qq 2>/tmp/apt_error.log; then
+    if grep -q "backports" /tmp/apt_error.log; then
+        echo -e "   ${YELLOW}[提示] 检测到失效的 backports 源，正在尝试忽略错误继续安装...${NC}"
+        # 使用 -o 选项忽略失效源的错误
+        apt-get install -y -qq -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowDowngradeToInsecureRepositories=true haveged > /dev/null 2>&1
+    fi
 fi
+
+# 再次确认安装（适用于没有报错或报错后通过常规方式重试）
+if ! command -v haveged >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get install -y -qq haveged > /dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q haveged > /dev/null 2>&1
+    fi
+fi
+
 systemctl enable haveged > /dev/null 2>&1 && systemctl start haveged > /dev/null 2>&1
 
 # 状态检测逻辑
-if systemctl is-active --quiet haveged; then
+if systemctl is-active --quiet haveged 2>/dev/null; then
     HAVEGED_STATUS="${GREEN}已启动 (Active)${NC}"
 else
-    HAVEGED_STATUS="${RED}未启动 (Failed)${NC}"
+    HAVEGED_STATUS="${RED}未安装/未启动${NC}"
 fi
 
 BBR_MODULE=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
-if [[ "$BBR_MODULE" == "bbr" ]]; then
-    BBR_STATUS="${GREEN}已开启 (bbr)${NC}"
-else
-    BBR_STATUS="${RED}未开启 ($BBR_MODULE)${NC}"
-fi
+[[ "$BBR_MODULE" == "bbr" ]] && BBR_STATUS="${GREEN}已开启 (bbr)${NC}" || BBR_STATUS="${RED}未开启 ($BBR_MODULE)${NC}"
 
 echo -e "\n${CYAN}-------------------------------------------------${NC}"
 echo -e "${GREEN}✅ 优化配置尝试完成！${NC}"
@@ -105,4 +115,4 @@ echo -e "BBR 加速状态: $BBR_STATUS"
 echo -e "Haveged 状态: $HAVEGED_STATUS"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
-rm -f /tmp/sysctl_opt.conf optimize.sh
+rm -f /tmp/sysctl_opt.conf /tmp/apt_error.log optimize.sh
