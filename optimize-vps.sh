@@ -2,7 +2,7 @@
 
 # VPS 网络优化脚本 - 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
 # 适用于 GitHub 部署，支持 NAT 小鸡和受限环境
-# 版本: 1.8.0
+# 版本: 1.9.0
 
 set -e
 
@@ -100,6 +100,43 @@ check_bbr_support() {
     fi
 }
 
+# 强制启用 BBR
+force_enable_bbr() {
+    log_info "正在强制启用 BBR..."
+    
+    # 尝试加载 BBR 模块
+    modprobe tcp_bbr 2>/dev/null || true
+    
+    # 尝试直接设置 sysctl 参数
+    log_info "设置: net.core.default_qdisc=fq"
+    sysctl -w net.core.default_qdisc=fq 2>/dev/null || log_warn "无法设置 net.core.default_qdisc"
+    
+    log_info "设置: net.ipv4.tcp_congestion_control=bbr"
+    sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || log_warn "无法设置 net.ipv4.tcp_congestion_control"
+    
+    # 添加到 /etc/sysctl.conf 确保重启后生效
+    if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf 2>/dev/null; then
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        log_info "已添加到 /etc/sysctl.conf: net.core.default_qdisc=fq"
+    fi
+    
+    if ! grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf 2>/dev/null; then
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+        log_info "已添加到 /etc/sysctl.conf: net.ipv4.tcp_congestion_control=bbr"
+    fi
+    
+    # 检查是否生效
+    local current=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | cut -d'=' -f2 | xargs)
+    if [ "$current" = "bbr" ]; then
+        log_success "BBR 已成功启用！"
+        return 0
+    else
+        log_warn "BBR 可能需要重启系统才能生效"
+        log_warn "当前拥塞控制: $current"
+        return 1
+    fi
+}
+
 # 检查 sysctl 参数是否可写
 check_sysctl_writable() {
     local param=$1
@@ -162,18 +199,16 @@ optimize_sysctl() {
 # VPS 网络优化配置
 EOF
 
-    # BBR 拥塞控制
+    # BBR 拥塞控制 - 强制添加
     if [ "$IS_CONTAINER" -eq 0 ]; then
-        if check_bbr_support; then
-            if check_sysctl_writable "net.core.default_qdisc"; then
-                cat >> "$temp_conf" << 'EOF'
+        cat >> "$temp_conf" << 'EOF'
 
 # BBR 拥塞控制
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 EOF
-            fi
-        fi
+        # 强制启用 BBR
+        force_enable_bbr
     fi
 
     local has_net_core=0
@@ -477,8 +512,8 @@ perform_optimize() {
     echo -e "${GREEN}已完成的优化:${NC}"
     echo "  - sysctl 网络参数优化"
     echo "  - 文件描述符限制优化"
+    echo "  - 强制启用 BBR"
     if [ "$IS_CONTAINER" -eq 0 ]; then
-        echo "  - BBR 拥塞控制（如支持）"
         echo "  - 防火墙规则优化"
         echo "  - 系统日志优化"
         echo "  - 中断平衡优化"
@@ -523,7 +558,11 @@ restore_config() {
         log_info "已删除 $JOURNALD_CONF"
     fi
     
+    # 从 /etc/sysctl.conf 中移除 BBR 配置
     if [ -f /etc/sysctl.conf ]; then
+        sed -i '/net.core.default_qdisc=fq/d' /etc/sysctl.conf
+        sed -i '/net.ipv4.tcp_congestion_control=bbr/d' /etc/sysctl.conf
+        log_info "已从 /etc/sysctl.conf 中移除 BBR 配置"
         sysctl -p /etc/sysctl.conf 2>/dev/null || true
     fi
     
@@ -579,6 +618,16 @@ check_status() {
         echo -e "  ${YELLOW}$LIMITS_CONF 不存在${NC}"
     fi
     
+    # 检查 /etc/sysctl.conf 中的 BBR 配置
+    echo ""
+    echo -e "${BLUE}/etc/sysctl.conf:${NC}"
+    if grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf 2>/dev/null; then
+        echo -e "  ${GREEN}包含: net.core.default_qdisc=fq${NC}"
+    fi
+    if grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf 2>/dev/null; then
+        echo -e "  ${GREEN}包含: net.ipv4.tcp_congestion_control=bbr${NC}"
+    fi
+    
     echo ""
     echo -e "${YELLOW}提示:${NC}"
     echo "  如果 BBR 未启用，请先运行优化，然后重启系统"
@@ -591,7 +640,7 @@ show_menu() {
     echo -e "${CYAN}"
     echo "=========================================="
     echo "    VPS 网络优化脚本"
-    echo "    版本 1.8.0"
+    echo "    版本 1.9.0 - 强制启用 BBR"
     echo "=========================================="
     echo -e "${NC}"
     echo ""
