@@ -13,5 +13,7 @@ curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_u
 
 # 🚀  优化脚本
 
+## 📖 使用方法
+
 ```bash
 curl -sL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/optimize.sh | sudo bash
