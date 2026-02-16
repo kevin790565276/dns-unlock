@@ -50,7 +50,12 @@ esac
 # 备份
 [[ ! -f /etc/sysctl.conf.bak ]] && cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
+# --- 修改部分开始 ---
 echo -e "\n${YELLOW}1. 正在写入 Hy2 核心优化参数...${NC}"
+echo -e "   ${CYAN}# 扩大堆货区: net.core.netdev_max_backlog=10000${NC}"
+echo -e "   ${CYAN}# 增加 CPU 处理上限: net.core.netdev_budget=600${NC}"
+echo -e "   ${CYAN}# 增加 CPU 处理权重: net.core.netdev_budget_usecs=20000${NC}"
+# --- 修改部分结束 ---
 
 cat > /etc/sysctl.conf << EOF
 # 基础转发与 BBR
@@ -83,7 +88,7 @@ net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_mtu_probing = 1
 EOF
 
-echo -e "${YELLOW}2. 执行 sysctl -p 生效配置:${NC}"
+echo -e "\n${YELLOW}2. 执行 sysctl -p 生效配置:${NC}"
 sysctl -p
 
 echo -e "\n${YELLOW}3. 检查并安装 haveged...${NC}"
@@ -98,9 +103,9 @@ echo -e "\n${CYAN}-------------------------------------------------${NC}"
 echo -e "${GREEN}✅ 优化配置成功！${NC}"
 echo -e "当前模式: ${YELLOW}$MODE${NC}"
 echo -e "关键验证: "
-echo -e " - CPU 队列上限: ${CYAN}$(sysctl net.core.netdev_max_backlog)${NC}"
-echo -e " - CPU 权重时长: ${CYAN}$(sysctl net.core.netdev_budget_usecs)${NC}"
-echo -e " - BBR 拥塞算法: ${CYAN}$(sysctl net.ipv4.tcp_congestion_control)${NC}"
+echo -e " - CPU 队列上限: ${CYAN}$(sysctl net.core.netdev_max_backlog | awk '{print $3}')${NC}"
+echo -e " - CPU 权重时长: ${CYAN}$(sysctl net.core.netdev_budget_usecs | awk '{print $3}')${NC}"
+echo -e " - BBR 拥塞算法: ${CYAN}$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')${NC}"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
 rm -f optimize.sh
