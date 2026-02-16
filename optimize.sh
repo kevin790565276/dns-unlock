@@ -12,7 +12,10 @@ echo "================================================="
 echo "请选择您的线路类型："
 echo "1) 全球/美国/长距离绕路 (64M 缓冲区 - 延迟 >150ms)"
 echo "2) 港日/近距离/直连线路 (32M 缓冲区 - 延迟 <100ms)"
-read -p "请输入选项 [1-2, 默认1]: " choice
+echo "-------------------------------------------------"
+
+# 关键修复：添加 < /dev/tty 确保在管道模式下也能接收键盘输入
+read -p "请输入选项 [1-2, 默认1]: " choice < /dev/tty
 
 # 设置缓冲区大小
 if [ "$choice" == "2" ]; then
@@ -25,9 +28,6 @@ fi
 
 echo "-------------------------------------------------"
 echo "正在为您执行 $MODE_NAME 优化方案..."
-
-# 备份原始 sysctl 配置文件
-cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
 # 写入内核参数
 cat > /etc/sysctl.conf << EOF
@@ -74,7 +74,7 @@ EOF
 # 使配置生效
 sysctl -p
 
-# 安装 haveged 增强系统熵值（有助于加速加密传输）
+# 安装 haveged 增强系统熵值
 if [ -f /usr/bin/apt ]; then
     apt update && apt install -y haveged
 elif [ -f /usr/bin/yum ]; then
@@ -85,6 +85,4 @@ systemctl enable haveged && systemctl start haveged
 echo "-------------------------------------------------"
 echo "✅ 优化已完成！"
 echo "当前线路模式: $MODE_NAME"
-echo "当前拥塞算法: $(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')"
-echo "当前队列调度: $(sysctl net.core.default_qdisc | awk '{print $3}')"
 echo "-------------------------------------------------"
