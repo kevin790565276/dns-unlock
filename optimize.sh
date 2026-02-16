@@ -9,16 +9,6 @@ export NC='\033[0m'
 
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误: 请以 root 运行！${NC}" && exit 1
 
-# 检查路径是否存在
-check_and_set() {
-    if [ -f "/proc/sys/${1//./\ /}" ] || sysctl "$1" >/dev/null 2>&1; then
-        sysctl -w "$1=$2" >/dev/null 2>&1
-        return 0
-    else
-        return 1
-    fi
-}
-
 clear
 echo -e "${CYAN}=================================================${NC}"
 echo -e "${CYAN}       ⚡ 全球 VPS 网络深度优化脚本 ⚡          ${NC}"
@@ -45,9 +35,14 @@ esac
 
 [[ ! -f /etc/sysctl.conf.bak ]] && cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
-echo -e "\n${YELLOW}1. 正在应用 Hy2/网络优化参数...${NC}"
+# --- 修改部分：让参数重新显现 ---
+echo -e "\n${YELLOW}1. 正在准备 Hy2 核心优化参数...${NC}"
+echo -e "   ${CYAN}# 扩大堆货区: net.core.netdev_max_backlog=10000${NC}"
+echo -e "   ${CYAN}# 增加 CPU 处理上限: net.core.netdev_budget=600${NC}"
+echo -e "   ${CYAN}# 增加 CPU 处理权重: net.core.netdev_budget_usecs=20000${NC}"
+echo -e "   ${CYAN}# 调整 TCP/UDP 缓冲区: $MODE${NC}"
 
-# 使用临时文件避免 sysctl -p 满屏报错
+# 写入临时配置文件
 cat > /etc/sysctl.d/99-optimize.conf << EOF
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
@@ -70,16 +65,17 @@ net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_mtu_probing = 1
 EOF
 
-echo -e "${YELLOW}2. 执行配置应用 (自动跳过不支持的参数):${NC}"
-# 逐行加载，失败的静默跳过，成功地显示出来
+echo -e "\n${YELLOW}2. 执行配置应用 (逐行检测兼容性):${NC}"
+
+# 逐行加载并显示结果
 while IFS= read -r line; do
     [[ "$line" =~ ^#.* ]] || [[ -z "$line" ]] && continue
     key=$(echo $line | cut -d'=' -f1 | tr -d ' ')
     value=$(echo $line | cut -d'=' -f2 | tr -d ' ')
     if sysctl -w "$key=$value" >/dev/null 2>&1; then
-        echo -e "${GREEN}[成功]${NC} $key"
+        echo -e "   ${GREEN}[OK]${NC} $key = $value"
     else
-        echo -e "${RED}[跳过]${NC} $key (架构限制)"
+        echo -e "   ${RED}[SKIP]${NC} $key (系统内核锁定)"
     fi
 done < /etc/sysctl.d/99-optimize.conf
 
@@ -92,10 +88,9 @@ fi
 systemctl enable haveged > /dev/null 2>&1 && systemctl start haveged > /dev/null 2>&1
 
 echo -e "\n${CYAN}-------------------------------------------------${NC}"
-echo -e "${GREEN}✅ 优化尝试完成！${NC}"
-echo -e "架构类型: ${YELLOW}$(systemd-detect-virt 2>/dev/null || echo "unknown")${NC}"
-echo -e "当前模式: ${YELLOW}$MODE${NC}"
-echo -e "提示: [跳过] 的项说明你的 NAT 架构不支持修改该内核参数。"
+echo -e "${GREEN}✅ 优化配置尝试完成！${NC}"
+echo -e "虚拟化架构: ${YELLOW}$(systemd-detect-virt 2>/dev/null || echo "unknown")${NC}"
+echo -e "提示: 如果出现 [SKIP]，说明该项在 NAT/OpenVZ 小鸡上无法修改，属于正常现象。"
 echo -e "${CYAN}-------------------------------------------------${NC}\n"
 
 rm -f optimize.sh
