@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # VPS 网络优化脚本 - 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
-# 适用于 GitHub 部署
-# 版本: 1.4.0
+# 适用于 GitHub 部署，支持 NAT 小鸡和受限环境
+# 版本: 1.5.0
 
 set -e
 
@@ -63,6 +63,47 @@ detect_os() {
     log_info "检测到操作系统: $OS $OS_VERSION ${OS_CODENAME:+($OS_CODENAME)}"
 }
 
+# 检测是否为容器环境
+detect_container() {
+    IS_CONTAINER=0
+    if [ -f /proc/1/cgroup ]; then
+        if grep -qE "docker|lxc|openvz|container" /proc/1/cgroup; then
+            IS_CONTAINER=1
+        fi
+    fi
+    if [ -f /run/.containerenv ] || [ -f /.dockerenv ]; then
+        IS_CONTAINER=1
+    fi
+    if [ "$IS_CONTAINER" -eq 1 ]; then
+        log_info "检测到容器环境 (NAT小鸡/OpenVZ/LXC)，将跳过受限参数"
+    fi
+}
+
+# 检查 sysctl 参数是否可写
+check_sysctl_writable() {
+    local param=$1
+    if [ -e "/proc/sys/${param//./\/}" ]; then
+        if sysctl -w "$param=1" > /dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# 安全地设置 sysctl 参数
+safe_sysctl() {
+    local param=$1
+    local value=$2
+    if check_sysctl_writable "$param"; then
+        sysctl -w "$param=$value" > /dev/null 2>&1 || true
+        echo "$param = $value"
+        return 0
+    else
+        log_warn "跳过不可设置的参数: $param"
+        return 1
+    fi
+}
+
 # 备份配置文件
 backup_config() {
     local file=$1
@@ -81,84 +122,107 @@ optimize_sysctl() {
         backup_config "$SYSCTL_CONF"
     fi
     
-    cat > "$SYSCTL_CONF" << 'EOF'
+    # 创建临时文件来收集可用的参数
+    local temp_conf=$(mktemp)
+    
+    cat > "$temp_conf" << 'EOF'
 # VPS 网络优化配置
 # 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
 EOF
 
-    # BBR 拥塞控制 (TCP)
-    cat >> "$SYSCTL_CONF" << 'EOF'
+    # BBR 拥塞控制 (TCP) - 仅在非容器环境尝试
+    if [ "$IS_CONTAINER" -eq 0 ]; then
+        if check_sysctl_writable "net.core.default_qdisc"; then
+            cat >> "$temp_conf" << 'EOF'
 
 # BBR 拥塞控制 (TCP优化)
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 EOF
+        fi
+    fi
 
-    # 网络缓冲区 (通用)
-    cat >> "$SYSCTL_CONF" << 'EOF'
+    # 网络缓冲区 (通用) - 检查哪些可用
+    local has_net_core=0
+    if check_sysctl_writable "net.core.rmem_max"; then
+        has_net_core=1
+    fi
+    
+    if [ "$has_net_core" -eq 1 ]; then
+        cat >> "$temp_conf" << 'EOF'
 
 # 提升网络缓冲区 (通用)
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.core.rmem_default = 65536
-net.core.wmem_default = 65536
-net.core.optmem_max = 65536
-net.core.somaxconn = 65535
 EOF
+        safe_sysctl "net.core.rmem_max" "67108864" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.core.wmem_max" "67108864" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.core.rmem_default" "65536" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.core.wmem_default" "65536" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.core.optmem_max" "65536" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.core.somaxconn" "65535" >> "$temp_conf" 2>/dev/null || true
+    fi
 
     # TCP 优化
     if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "tcp" ]; then
-        cat >> "$SYSCTL_CONF" << 'EOF'
+        cat >> "$temp_conf" << 'EOF'
 
 # TCP 优化 (xhttp, v2ray, vmess等)
-net.ipv4.tcp_rmem = 4096 87380 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
-net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_timestamps = 0
-net.ipv4.tcp_sack = 1
-net.ipv4.tcp_fack = 1
-net.ipv4.tcp_window_scaling = 1
-net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_keepalive_intvl = 30
-net.ipv4.tcp_keepalive_probes = 3
-net.ipv4.tcp_fin_timeout = 30
-net.ipv4.tcp_max_syn_backlog = 65535
-net.ipv4.ip_local_port_range = 1024 65535
-net.ipv4.tcp_max_tw_buckets = 2000000
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_slow_start_after_idle = 0
 EOF
+        # 只添加可用的 TCP 参数
+        safe_sysctl "net.ipv4.tcp_rmem" "4096 87380 67108864" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_wmem" "4096 65536 67108864" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_syncookies" "1" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_tw_reuse" "1" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_timestamps" "0" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_sack" "1" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_fack" "1" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_window_scaling" "1" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_keepalive_time" "600" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_keepalive_intvl" "30" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_keepalive_probes" "3" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_fin_timeout" "30" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_max_syn_backlog" "65535" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.ip_local_port_range" "1024 65535" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_max_tw_buckets" "2000000" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_mtu_probing" "1" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.tcp_slow_start_after_idle" "0" >> "$temp_conf" 2>/dev/null || true
     fi
 
     # UDP 优化
     if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "udp" ]; then
-        cat >> "$SYSCTL_CONF" << 'EOF'
+        cat >> "$temp_conf" << 'EOF'
 
 # UDP 优化 (Hysteria 2, QUIC等)
-net.core.netdev_max_backlog = 65535
-net.core.rps_sock_flow_entries = 32768
-net.ipv4.udp_rmem_min = 8192
-net.ipv4.udp_wmem_min = 8192
-net.ipv4.udp_mem = 65536 131072 262144
 EOF
+        safe_sysctl "net.core.netdev_max_backlog" "65535" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.core.rps_sock_flow_entries" "32768" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.udp_rmem_min" "8192" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.udp_wmem_min" "8192" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "net.ipv4.udp_mem" "65536 131072 262144" >> "$temp_conf" 2>/dev/null || true
     fi
 
     # 其他优化
-    cat >> "$SYSCTL_CONF" << 'EOF'
+    cat >> "$temp_conf" << 'EOF'
 
 # 其他优化 (通用)
-net.ipv4.conf.all.rp_filter = 0
-net.ipv4.conf.default.rp_filter = 0
-net.ipv4.icmp_echo_ignore_broadcasts = 1
-net.ipv4.icmp_ignore_bogus_error_responses = 1
-vm.swappiness = 10
-vm.dirty_ratio = 15
-vm.dirty_background_ratio = 5
 EOF
+    safe_sysctl "net.ipv4.conf.all.rp_filter" "0" >> "$temp_conf" 2>/dev/null || true
+    safe_sysctl "net.ipv4.conf.default.rp_filter" "0" >> "$temp_conf" 2>/dev/null || true
+    safe_sysctl "net.ipv4.icmp_echo_ignore_broadcasts" "1" >> "$temp_conf" 2>/dev/null || true
+    safe_sysctl "net.ipv4.icmp_ignore_bogus_error_responses" "1" >> "$temp_conf" 2>/dev/null || true
+    # VM 参数在容器中通常不可用，跳过
+    if [ "$IS_CONTAINER" -eq 0 ]; then
+        safe_sysctl "vm.swappiness" "10" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "vm.dirty_ratio" "15" >> "$temp_conf" 2>/dev/null || true
+        safe_sysctl "vm.dirty_background_ratio" "5" >> "$temp_conf" 2>/dev/null || true
+    fi
+
+    # 移动临时文件到最终位置
+    mv "$temp_conf" "$SYSCTL_CONF"
     
-    sysctl -p "$SYSCTL_CONF"
-    log_success "sysctl 配置优化完成"
+    # 尝试加载配置，忽略错误
+    sysctl -p "$SYSCTL_CONF" 2>/dev/null || true
+    
+    log_success "sysctl 配置优化完成（已跳过受限参数）"
 }
 
 # 优化 limits 配置
@@ -207,11 +271,17 @@ EOF
 optimize_irqbalance() {
     log_info "正在优化 irqbalance..."
     
+    # 容器环境通常没有 irqbalance
+    if [ "$IS_CONTAINER" -eq 1 ]; then
+        log_info "容器环境，跳过 irqbalance"
+        return
+    fi
+    
     if command -v irqbalance &> /dev/null; then
         if systemctl is-active --quiet irqbalance; then
             log_info "irqbalance 已在运行"
         else
-            systemctl enable --now irqbalance
+            systemctl enable --now irqbalance 2>/dev/null || true
             log_success "irqbalance 已启用"
         fi
     fi
@@ -221,13 +291,23 @@ optimize_irqbalance() {
 enable_bbr() {
     log_info "正在检查 BBR 状态..."
     
+    # 容器环境跳过 BBR
+    if [ "$IS_CONTAINER" -eq 1 ]; then
+        log_info "容器环境，跳过 BBR 检测"
+        return
+    fi
+    
     if modprobe tcp_bbr 2>/dev/null; then
         if lsmod | grep -q bbr; then
             log_success "BBR 已加载"
         else
             log_warn "BBR 未加载，尝试加载..."
-            modprobe tcp_bbr
-            log_success "BBR 已加载"
+            modprobe tcp_bbr 2>/dev/null || true
+            if lsmod | grep -q bbr; then
+                log_success "BBR 已加载"
+            else
+                log_warn "无法加载 BBR，继续执行其他优化"
+            fi
         fi
     else
         log_warn "系统可能不支持 BBR，继续执行其他优化"
@@ -270,7 +350,7 @@ install_tools() {
             disable_backports_repo
             
             # 更新包列表（忽略错误）
-            apt-get update || log_warn "apt-get update 有警告，继续执行"
+            apt-get update 2>/dev/null || log_warn "apt-get update 有警告，继续执行"
             
             # 尝试安装工具，跳过不存在的包
             local packages=("net-tools" "ethtool" "irqbalance")
@@ -285,7 +365,7 @@ install_tools() {
             fi
             
             # 安装
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}" || log_warn "部分工具安装失败，继续执行"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}" 2>/dev/null || log_warn "部分工具安装失败，继续执行"
             ;;
         centos|rhel|fedora)
             local packages=("net-tools" "ethtool" "irqbalance")
@@ -297,9 +377,9 @@ install_tools() {
                 if rpm -q bind-utils &> /dev/null || yum list available bind-utils &> /dev/null; then
                     packages+=("bind-utils")
                 fi
-                yum install -y "${packages[@]}" || log_warn "部分工具安装失败，继续执行"
+                yum install -y "${packages[@]}" 2>/dev/null || log_warn "部分工具安装失败，继续执行"
             elif command -v dnf &> /dev/null; then
-                dnf install -y "${packages[@]}" || log_warn "部分工具安装失败，继续执行"
+                dnf install -y "${packages[@]}" 2>/dev/null || log_warn "部分工具安装失败，继续执行"
             fi
             ;;
         *)
@@ -313,6 +393,12 @@ install_tools() {
 # 优化防火墙规则
 optimize_firewall() {
     log_info "正在优化防火墙规则..."
+    
+    # 容器环境通常没有 iptables 权限
+    if [ "$IS_CONTAINER" -eq 1 ]; then
+        log_info "容器环境，跳过防火墙优化"
+        return
+    fi
     
     # 检查 iptables 是否可用
     if ! command -v iptables &> /dev/null; then
@@ -352,6 +438,12 @@ optimize_firewall() {
 disable_unnecessary_services() {
     log_info "正在禁用不必要的服务..."
     
+    # 容器环境跳过
+    if [ "$IS_CONTAINER" -eq 1 ]; then
+        log_info "容器环境，跳过服务管理"
+        return
+    fi
+    
     local services=("apparmor" "ufw" "firewalld" "apache2" "httpd" "named" "sendmail")
     
     for service in "${services[@]}"; do
@@ -377,6 +469,7 @@ perform_optimize() {
     
     check_root
     detect_os
+    detect_container
     enable_bbr
     optimize_sysctl
     optimize_limits
@@ -392,13 +485,15 @@ perform_optimize() {
     echo -e "${CYAN}========================================${NC}"
     echo ""
     echo -e "${GREEN}已完成的优化:${NC}"
-    echo "  ✅ sysctl 网络参数优化"
+    echo "  ✅ sysctl 网络参数优化（已跳过受限参数）"
     echo "  ✅ 文件描述符限制优化"
-    echo "  ✅ BBR 拥塞控制"
-    echo "  ✅ 防火墙规则优化"
-    echo "  ✅ 系统日志优化"
-    echo "  ✅ 中断平衡优化"
-    echo "  ✅ 禁用不必要的服务"
+    if [ "$IS_CONTAINER" -eq 0 ]; then
+        echo "  ✅ BBR 拥塞控制（如支持）"
+        echo "  ✅ 防火墙规则优化"
+        echo "  ✅ 系统日志优化"
+        echo "  ✅ 中断平衡优化"
+        echo "  ✅ 禁用不必要的服务"
+    fi
     echo ""
     echo -e "${BLUE}适用协议:${NC}"
     if [ "$OPTIMIZE_MODE" = "both" ]; then
@@ -410,10 +505,18 @@ perform_optimize() {
         echo "  UDP (Hysteria 2, QUIC)"
     fi
     echo ""
+    if [ "$IS_CONTAINER" -eq 1 ]; then
+        echo -e "${PURPLE}注意:${NC}"
+        echo "  检测到容器环境 (NAT小鸡/OpenVZ/LXC)"
+        echo "  部分内核参数无法修改，已自动跳过"
+        echo ""
+    fi
     echo -e "${YELLOW}建议:${NC}"
     echo "  1. 重启系统以应用所有优化"
-    echo "  2. 重启后运行: sysctl net.ipv4.tcp_congestion_control"
-    echo "  3. 确保输出为 'bbr'"
+    if [ "$IS_CONTAINER" -eq 0 ]; then
+        echo "  2. 重启后运行: sysctl net.ipv4.tcp_congestion_control"
+        echo "  3. 确保输出为 'bbr'"
+    fi
     echo ""
 }
 
@@ -478,13 +581,17 @@ show_menu() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════╗"
     echo "║    VPS 网络优化脚本 - 支持 TCP 和 UDP          ║"
-    echo "║                  版本 1.4.0                     ║"
+    echo "║              版本 1.5.0 - 支持 NAT 小鸡        ║"
     echo "╚═══════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
     echo -e "${BLUE}支持的协议:${NC}"
     echo "  TCP: xhttp, v2ray, vmess, trojan"
     echo "  UDP: Hysteria 2, QUIC"
+    echo ""
+    echo -e "${PURPLE}环境支持:${NC}"
+    echo "  ✅ 独立服务器/KVM"
+    echo "  ✅ NAT小鸡/OpenVZ/LXC"
     echo ""
     echo -e "${GREEN}请选择操作:${NC}"
     echo ""
@@ -600,6 +707,10 @@ show_help() {
     echo "支持的协议:"
     echo "  TCP: xhttp, v2ray, vmess, trojan"
     echo "  UDP: Hysteria 2, QUIC"
+    echo ""
+    echo "环境支持:"
+    echo "  ✅ 独立服务器/KVM"
+    echo "  ✅ NAT小鸡/OpenVZ/LXC"
     echo ""
 }
 
