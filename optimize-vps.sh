@@ -2,7 +2,7 @@
 
 # VPS 网络优化脚本 - 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
 # 适用于 GitHub 部署，支持 NAT 小鸡和受限环境
-# 版本: 2.0
+# 版本: 1.9.1
 
 set -e
 
@@ -211,13 +211,8 @@ EOF
         force_enable_bbr
     fi
 
-    local has_net_core=0
-    if check_sysctl_writable "net.core.rmem_max"; then
-        has_net_core=1
-    fi
-    
-    if [ "$has_net_core" -eq 1 ]; then
-        cat >> "$temp_conf" << 'EOF'
+    # 网络缓冲区和处理参数
+    cat >> "$temp_conf" << 'EOF'
 
 # 网络缓冲区
 net.core.rmem_max = 67108864
@@ -226,8 +221,11 @@ net.core.rmem_default = 65536
 net.core.wmem_default = 65536
 net.core.optmem_max = 65536
 net.core.somaxconn = 65535
+
+# 网络处理优化
+net.core.netdev_budget = 600
+net.core.netdev_budget_usecs = 20000
 EOF
-    fi
 
     if [ "$OPTIMIZE_MODE" = "both" ] || [ "$OPTIMIZE_MODE" = "tcp" ]; then
         cat >> "$temp_conf" << 'EOF'
@@ -272,9 +270,6 @@ net.ipv4.conf.all.rp_filter = 0
 net.ipv4.conf.default.rp_filter = 0
 net.ipv4.icmp_echo_ignore_broadcasts = 1
 net.ipv4.icmp_ignore_bogus_error_responses = 1
-# 专门应对高并发邻居环境
-net.core.netdev_budget = 600
-net.core.netdev_budget_usecs = 20000
 EOF
 
     if [ "$IS_CONTAINER" -eq 0 ]; then
@@ -516,6 +511,7 @@ perform_optimize() {
     echo "  - sysctl 网络参数优化"
     echo "  - 文件描述符限制优化"
     echo "  - 强制启用 BBR"
+    echo "  - 添加网络处理优化参数"
     if [ "$IS_CONTAINER" -eq 0 ]; then
         echo "  - 防火墙规则优化"
         echo "  - 系统日志优化"
@@ -528,7 +524,7 @@ perform_optimize() {
     echo ""
     echo -e "${YELLOW}重启后验证:${NC}"
     echo "  运行: sysctl net.ipv4.tcp_congestion_control"
-    echo "  必须输出: bbr"
+    echo "  期望输出: bbr"
     echo ""
 }
 
@@ -601,6 +597,13 @@ check_status() {
         echo -e "  ${YELLOW}BBR 未启用${NC}"
     fi
     
+    # 检查网络处理参数
+    local budget=$(sysctl net.core.netdev_budget 2>/dev/null | cut -d'=' -f2 | xargs)
+    local budget_usecs=$(sysctl net.core.netdev_budget_usecs 2>/dev/null | cut -d'=' -f2 | xargs)
+    
+    echo "  netdev_budget: ${budget:-unknown}"
+    echo "  netdev_budget_usecs: ${budget_usecs:-unknown}"
+    
     # 检查文件描述符
     local ulimit_n=$(ulimit -n)
     echo "  文件描述符限制: $ulimit_n"
@@ -643,7 +646,7 @@ show_menu() {
     echo -e "${CYAN}"
     echo "=========================================="
     echo "    VPS 网络优化脚本"
-    echo "    版本 1.9.0 "
+    echo "    版本 1.9.1 - 添加网络处理优化"
     echo "=========================================="
     echo -e "${NC}"
     echo ""
