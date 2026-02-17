@@ -2,7 +2,7 @@
 
 # VPS 网络优化脚本 - 支持 TCP (xhttp, v2ray) 和 UDP (Hysteria 2)
 # 适用于 GitHub 部署，支持 NAT 小鸡和受限环境
-# 版本: 1.9.1
+# 版本: 2.0
 
 set -e
 
