@@ -272,6 +272,9 @@ net.ipv4.conf.all.rp_filter = 0
 net.ipv4.conf.default.rp_filter = 0
 net.ipv4.icmp_echo_ignore_broadcasts = 1
 net.ipv4.icmp_ignore_bogus_error_responses = 1
+# 专门应对高并发邻居环境
+net.core.netdev_budget = 600
+net.core.netdev_budget_usecs = 20000
 EOF
 
     if [ "$IS_CONTAINER" -eq 0 ]; then
