@@ -36,7 +36,7 @@ show_menu() {
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
     echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(兼容 Realm)${NC}"
     echo -e "  ${RED}3.${NC} 还原系统配置"
-    echo -e "  ${YELLOW}4.${NC} 运行解锁检测"
+    echo -e "  ${YELLOW}4.${NC} 运行解锁检测 （by oneclickvirt）"  
     echo -e "  ${PURPLE}5.${NC} 卸载 Dnsmasq 环境"
     echo -e "  ${BLUE}0.${NC} 退出脚本"
     echo -e "${CYAN}==================================================${NC}"
@@ -115,4 +115,5 @@ while true; do
         0) exit 0 ;;
     esac
 done
+
 
