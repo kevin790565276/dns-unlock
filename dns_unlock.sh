@@ -13,7 +13,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; PU
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
-VERSION="V1.0"
+VERSION="V1.1"
 
 # --- 域名包 (不含 TikTok & YouTube，确保其原生直连) ---
 ALL_DOMAINS=(
