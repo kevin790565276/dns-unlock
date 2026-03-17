@@ -25,6 +25,11 @@ ALL_DOMAINS=(
     abema.tv dmm.com tving.com wavve.com scdn.co
 )
 
+# --- 快捷指令 ---
+if [[ "$0" != "/usr/local/bin/dns" && "$0" != "dns" ]]; then
+    cp "$0" /usr/local/bin/dns && chmod +x /usr/local/bin/dns
+fi
+
 get_status() {
     if grep -q "127.0.0.1" "$RESOLV_CONF" 2>/dev/null; then
         DNS_STATUS="${GREEN}已接管 (Dual-Stack)${NC}"
@@ -41,7 +46,7 @@ do_config() {
     read dns_ip < /dev/tty
     [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] 格式错误${NC}" && sleep 2 && return
 
-    # 1. 恢复系统 IPv6 优先级 (确保原生连接是第一优先级)
+    # 1. 环境清理：确保不禁用系统 IPv6，且恢复默认优先级
     [ -f "/etc/gai.conf" ] && sed -i '/precedence ::ffff:0:0\/96/d' /etc/gai.conf
 
     # 2. 构造 Dnsmasq 规则
@@ -50,24 +55,29 @@ do_config() {
     echo "server=2001:4860:4860::8888" >> "$CONF_FILE"
 
     for d in "${ALL_DOMAINS[@]}"; do 
-        # 所有域名映射到解锁 IPv4
+        # 写入 IPv4 映射
         echo "address=/$d/$dns_ip" >> "$CONF_FILE"
-        
-        # 【核心逻辑】：只对顽固流媒体域名屏蔽 IPv6 解析，强制其退回到 IPv4 解锁通道
-        if [[ "$d" =~ (netflix|nflx|google|youtube|ytimg|ggpht|openai|chatgpt|claude|gemini) ]]; then
+        # 针对顽固域名，屏蔽其 IPv6 解析，迫使其退回 IPv4 连接
+        if [[ "$d" =~ (netflix|nflx|google|youtube|ytimg|ggpht|openai|chatgpt|claude|gemini|tiktok) ]]; then
             echo "address=/$d/::" >> "$CONF_FILE"
         fi
     done
 
-    # 3. 强制锁定 DNS 并锁定
-    chattr -i "$RESOLV_CONF" 2>/dev/null
-    cat > "$RESOLV_CONF" <<EOF
-nameserver 127.0.0.1
-nameserver ::1
+    # 3. 写入主配置
+    cat > "$MAIN_CONF" <<EOF
+listen-address=127.0.0.1,::1
+no-resolv
+conf-dir=/etc/dnsmasq.d/,*.conf
+rebind-localhost-ok
 EOF
+    
+    # 4. 暴力锁定 DNS
+    chattr -i "$RESOLV_CONF" 2>/dev/null
+    echo -e "nameserver 127.0.0.1\nnameserver ::1" > "$RESOLV_CONF"
     chattr +i "$RESOLV_CONF"
+
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 针对性屏蔽已生效：流媒体强制走 V4 解锁，其余保持原生 V6${NC}"
+    echo -e "${GREEN}[+] 配置生效：已针对流媒体屏蔽 IPv6 解析，其余保持原生。${NC}"
     sleep 2
 }
 
@@ -76,17 +86,25 @@ do_clear() {
     echo "nameserver 8.8.8.8" > "$RESOLV_CONF"
     rm -f "$CONF_FILE"
     systemctl restart dnsmasq 2>/dev/null
-    echo -e "${GREEN}[+] 已还原直连${NC}"
+    echo -e "${GREEN}[+] 已还原直连状态${NC}"
     sleep 2
 }
 
-# --- 简单菜单 ---
+# --- 菜单界面 ---
 while true; do
     get_status
     clear
-    echo -e "${CYAN}DNS 状态: $DNS_STATUS  解锁 IP: $UNLOCK_IP${NC}"
-    echo -e "1. 安装环境\n2. 配置针对性解锁 (推荐)\n3. 还原系统\n4. 运行检测\n0. 退出"
-    read -p "选择: " choice < /dev/tty
+    echo -e "${CYAN}==================================================${NC}"
+    echo -e "  DNS 状态: $DNS_STATUS"
+    echo -e "  解锁 IP: ${YELLOW}$UNLOCK_IP${NC}"
+    echo -e "${CYAN}==================================================${NC}"
+    echo -e "  ${GREEN}1.${NC} 安装/清理环境"
+    echo -e "  ${GREEN}2.${NC} 配置针对性解锁 (保住原生 IPv6)"
+    echo -e "  ${RED}3.${NC} 还原系统"
+    echo -e "  ${YELLOW}4.${NC} 运行检测"
+    echo -e "  ${BLUE}0.${NC} 退出"
+    echo -e "${CYAN}==================================================${NC}"
+    read -p "选择 [0-4]: " choice < /dev/tty
     case "$choice" in
         1) systemctl stop systemd-resolved; apt-get install -y dnsmasq e2fsprogs ;;
         2) do_config ;;
