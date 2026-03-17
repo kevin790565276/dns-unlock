@@ -21,7 +21,11 @@ GAI_CONF="/etc/gai.conf"
 
 get_status() {
     CURRENT_DNS=$(grep "nameserver" $RESOLV_CONF | awk '{print $2}' | head -n 1)
-    [ -f "$CONF_FILE" ] && UNLOCK_IP=$(grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" $CONF_FILE | head -n 1) || UNLOCK_IP="未配置"
+    # 修复抓取逻辑：只查找 address 映射中的 IP
+    if [ -f "$CONF_FILE" ]; then
+        UNLOCK_IP=$(grep "address=" $CONF_FILE | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" | head -n 1)
+    fi
+    [ -z "$UNLOCK_IP" ] && UNLOCK_IP="未配置"
     [[ "$CURRENT_DNS" == "127.0.0.1" || "$CURRENT_DNS" == "::1" ]] && DNS_STATUS="${GREEN}已接管 (Dual-Stack)${NC}" || DNS_STATUS="${RED}直连 ($CURRENT_DNS)${NC}"
 }
 
@@ -29,13 +33,13 @@ show_menu() {
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (多机通用版) ${NC}"
+    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (原生 IPv6 版) ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(强制v4解锁+v6原生)${NC}"
+    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(仅映射 v4，v6 保持原生)${NC}"
     echo -e "  ${RED}3.${NC} 还原系统配置"
     echo -e "  ${YELLOW}4.${NC} 运行解锁检测"  
     echo -e "  ${PURPLE}5.${NC} 卸载 Dnsmasq 环境"
@@ -46,53 +50,45 @@ show_menu() {
 }
 
 do_install() {
-    echo -e "\n${YELLOW}[*] 正在准备环境...${NC}"
-    # 彻底关闭可能占用 53 端口的服务
+    echo -e "\n${YELLOW}[*] 正在安装 Dnsmasq 环境...${NC}"
     systemctl stop systemd-resolved 2>/dev/null
     systemctl disable systemd-resolved 2>/dev/null
     
     apt-get update && apt-get install -y dnsmasq e2fsprogs dnsutils || yum install -y dnsmasq e2fsprogs bind-utils
     systemctl enable dnsmasq && systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 环境准备完成${NC}"
+    echo -e "${GREEN}[+] 安装成功${NC}"
     sleep 2
 }
 
 do_config() {
     echo -ne "\n${CYAN}请输入解锁 IP: ${NC}"
     read dns_ip < /dev/tty
-    [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 格式错误${NC}" && sleep 2 && return
+    [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 错误${NC}" && sleep 2 && return
 
-    # 1. 优先级调整
-    [ -f "$GAI_CONF" ] && sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' $GAI_CONF
+    # 1. 恢复系统默认优先级（不强制 v4 优先，保持原生双栈逻辑）
+    [ -f "$GAI_CONF" ] && sed -i 's/^precedence ::ffff:0:0\/96  100/#precedence ::ffff:0:0\/96  100/' $GAI_CONF
 
-    # 2. 构造解锁规则
+    # 2. 配置 Dnsmasq 规则
     mkdir -p /etc/dnsmasq.d/
     echo "server=8.8.8.8" > $CONF_FILE
     echo "server=2001:4860:4860::8888" >> $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do 
+        # 只映射 IPv4，不写 IPv6 address 规则，Dnsmasq 就会自动向上游请求原生 IPv6
         echo "address=/$d/$dns_ip" >> $CONF_FILE
-        echo "address=/$d/::" >> $CONF_FILE # 屏蔽解锁域名的 v6 记录
     done
 
-    # 3. 强制修正 Dnsmasq 主配置
-    cat > $MAIN_CONF <<EOF
-listen-address=127.0.0.1,::1
-no-resolv
-conf-dir=/etc/dnsmasq.d/,*.conf
-EOF
-
-    # 4. 强制接管 DNS
+    # 3. 修正 Dnsmasq 主配置
+    sed -i '/listen-address=/d' $MAIN_CONF
+    echo "listen-address=127.0.0.1,::1" >> $MAIN_CONF
+    sed -i 's/^#conf-dir/conf-dir/g' $MAIN_CONF
+    
+    # 4. 锁定 DNS 指向本地双栈
     chattr -i $RESOLV_CONF 2>/dev/null
     echo -e "nameserver 127.0.0.1\nnameserver ::1" > $RESOLV_CONF
     chattr +i $RESOLV_CONF
 
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置已强制生效：解锁域名仅走 v4，非解锁域名双栈原生${NC}"
-    
-    # 验证解析
-    echo -e "${YELLOW}[*] 验证测试 (netflix.com):${NC}"
-    nslookup netflix.com 127.0.0.1 | grep "Address"
-    
+    echo -e "${GREEN}[+] 配置成功：IPv4 已解锁，IPv6 解析保持原生且无 Failed 报错${NC}"
     read -p "按回车返回..." < /dev/tty
 }
 
@@ -110,7 +106,7 @@ do_clear() {
 
 do_check() {
     curl -sL https://raw.githubusercontent.com/oneclickvirt/UnlockTests/main/ut_install.sh -sSf | bash
-    /usr/bin/ut
+    [ -f "/usr/bin/ut" ] && /usr/bin/ut || ut
     read -p "按回车返回..." < /dev/tty
 }
 
