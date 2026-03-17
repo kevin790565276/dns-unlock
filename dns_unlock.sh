@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# ==================================================
+# 项目名称: OmniUnlock (全球流媒体 & AI 终极解锁工具箱)
+# 版本号:   V1.0
+# 功能:     基于 Dnsmasq 的针对性 IPv6 屏蔽与 IPv4 解锁分流
+# ==================================================
+
 # --- 颜色定义 ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; PURPLE='\033[0;35m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -7,8 +13,9 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; PU
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
+VERSION="V1.0"
 
-# --- 域名包 (含 AI、流媒体，不包含tiktok,youtube) ---
+# --- 域名包 (不含 TikTok & YouTube，确保其原生直连) ---
 ALL_DOMAINS=(
     # AI & Search
     openai.com chatgpt.com oaistatic.com oaiusercontent.com sora.com anthropic.com claude.ai
@@ -24,55 +31,55 @@ ALL_DOMAINS=(
     videomarket.jp fod.fujitv.co.jp radiko.jp lemino.docomo.ne.jp mgs-video.jp telasa.jp wowow.co.jp
     gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com hoy.tv hami.video catchplay.com
     friday.tw 4gtv.tv kktv.me linetv.tw ofiii.com iq.com iqiyi.com hotstar.com kfs.io
-    # Social & Others (不含 TikTok)
+    # Social & Others
     instagram.com fbcdn.net reddit.com wikipedia.org bilibili.com steam-chat.com
 )
 
-# --- 1. 环境安装与清理 ---
+# --- 状态获取逻辑 (修复显示残留问题) ---
+get_status() {
+    if grep -q "127.0.0.1" "$RESOLV_CONF" 2>/dev/null; then
+        DNS_STATUS="${GREEN}已接管 (Dual-Stack)${NC}"
+        if [ -f "$CONF_FILE" ]; then
+            UNLOCK_IP=$(grep "address=" "$CONF_FILE" | grep -v "::" | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" | head -n 1)
+        else
+            UNLOCK_IP="${YELLOW}配置未就绪${NC}"
+        fi
+    else
+        DNS_STATUS="${RED}直连 ($(grep "nameserver" "$RESOLV_CONF" | awk '{print $2}' | head -n 1))${NC}"
+        UNLOCK_IP="${NC}无 (已还原/直连)${NC}"
+    fi
+    [ -z "$UNLOCK_IP" ] && UNLOCK_IP="N/A"
+}
+
+# --- 1. 环境安装 ---
 do_install() {
     echo -e "\n${YELLOW}[*] 正在准备环境...${NC}"
-    # 彻底关掉并卸载可能冲突的服务
     systemctl stop systemd-resolved 2>/dev/null
     systemctl disable systemd-resolved 2>/dev/null
-    
-    # 安装必要组件
-    if command -v apt-get >/dev/null; then
-        apt-get update && apt-get install -y dnsmasq e2fsprogs dnsutils
-    else
-        yum install -y dnsmasq e2fsprogs bind-utils
-    fi
-    
-    # 注册快捷指令
+    apt-get update && apt-get install -y dnsmasq e2fsprogs dnsutils || yum install -y dnsmasq e2fsprogs bind-utils
     cp "$0" /usr/local/bin/dns && chmod +x /usr/local/bin/dns
-    
     systemctl enable dnsmasq && systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 环境准备完成，快捷指令 'dns' 已生效${NC}"
+    echo -e "${GREEN}[+] 安装完成，快捷指令 'dns' 已生效${NC}"
     sleep 2
 }
 
-# --- 2. 核心配置 (降维打击版) ---
+# --- 2. 开启解锁 ---
 do_config() {
     echo -ne "\n${CYAN}请输入解锁 IP: ${NC}"
     read dns_ip < /dev/tty
-    [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 格式错误${NC}" && sleep 2 && return
+    [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] 格式错误${NC}" && sleep 2 && return
 
-    # 还原 IPv6 优先级，确保系统连接是原生的
-    [ -f "/etc/gai.conf" ] && sed -i '/precedence ::ffff:0:0\/96/d' /etc/gai.conf
-
-    # 构造 Dnsmasq 规则
     mkdir -p /etc/dnsmasq.d/
     echo "server=8.8.8.8" > "$CONF_FILE"
     echo "server=2001:4860:4860::8888" >> "$CONF_FILE"
 
     for d in "${ALL_DOMAINS[@]}"; do 
         echo "address=/$d/$dns_ip" >> "$CONF_FILE"
-        # 强制屏蔽流媒体 IPv6 解析，迫使其走 V4 解锁
-        if [[ "$d" =~ (netflix|nflx|google|youtube|ytimg|ggpht|openai|chatgpt|claude|gemini|tiktok|byteoversea) ]]; then
+        if [[ "$d" =~ (netflix|nflx|google|openai|chatgpt|claude|gemini|disney|hulu|hbo|dmm|abema|viu|gamer|bahamut) ]]; then
             echo "address=/$d/::" >> "$CONF_FILE"
         fi
     done
 
-    # 写入主配置
     cat > "$MAIN_CONF" <<EOF
 listen-address=127.0.0.1,::1
 no-resolv
@@ -80,19 +87,16 @@ conf-dir=/etc/dnsmasq.d/,*.conf
 rebind-localhost-ok
 EOF
     
-    # 接管并锁定 DNS
     chattr -i "$RESOLV_CONF" 2>/dev/null
     echo -e "nameserver 127.0.0.1\nnameserver ::1" > "$RESOLV_CONF"
     chattr +i "$RESOLV_CONF"
-
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置生效：针对性屏蔽已开启，流媒体强制走 V4 解锁${NC}"
+    echo -e "${GREEN}[+] 解锁规则已生效 (TikTok/YouTube 已保持原生直连)${NC}"
     sleep 2
 }
 
-# --- 3. 还原系统 (保留 Dnsmasq 但清空规则) ---
+# --- 3. 还原系统 ---
 do_restore() {
-    echo -e "\n${YELLOW}[*] 正在还原直连设置...${NC}"
     chattr -i "$RESOLV_CONF" 2>/dev/null
     echo "nameserver 8.8.8.8" > "$RESOLV_CONF"
     echo "nameserver 2001:4860:4860::8888" >> "$RESOLV_CONF"
@@ -104,38 +108,21 @@ do_restore() {
 
 # --- 4. 彻底卸载 ---
 do_uninstall() {
-    echo -e "\n${RED}[!] 正在彻底卸载 Dnsmasq 并清理所有配置...${NC}"
     do_restore
     systemctl stop dnsmasq && systemctl disable dnsmasq
-    if command -v apt-get >/dev/null; then
-        apt-get purge -y dnsmasq
-    else
-        yum remove -y dnsmasq
-    fi
+    apt-get purge -y dnsmasq || yum remove -y dnsmasq
     rm -rf /etc/dnsmasq.d/ /etc/dnsmasq.conf /usr/local/bin/dns
-    echo -e "${GREEN}[+] 卸载完成，系统已恢复纯净状态${NC}"
+    echo -e "${GREEN}[+] 卸载完成${NC}"
     sleep 2
 }
 
-# --- 状态获取 ---
-get_status() {
-    if grep -q "127.0.0.1" "$RESOLV_CONF" 2>/dev/null; then
-        DNS_STATUS="${GREEN}已接管 (Dual-Stack)${NC}"
-    else
-        CURRENT_DNS=$(grep "nameserver" "$RESOLV_CONF" | awk '{print $2}' | head -n 1)
-        DNS_STATUS="${RED}直连 ($CURRENT_DNS)${NC}"
-    fi
-    [ -f "$CONF_FILE" ] && UNLOCK_IP=$(grep "address=" "$CONF_FILE" | grep -v "::" | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" | head -n 1)
-    [ -z "$UNLOCK_IP" ] && UNLOCK_IP="未配置"
-}
-
-# --- 菜单循环 ---
+# --- 主菜单 ---
 [[ $EUID -ne 0 ]] && echo "请使用 root 运行" && exit 1
 while true; do
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}      DNS 全球流媒体 & AI 终极解锁工具箱(V1.0) ${NC}"
+    echo -e "${PURPLE}    OmniUnlock $VERSION - 全球流媒体 & AI 工具箱 ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}$UNLOCK_IP${NC}"
@@ -155,6 +142,5 @@ while true; do
         4) curl -sL https://raw.githubusercontent.com/oneclickvirt/UnlockTests/main/ut_install.sh -sSf | bash; /usr/bin/ut; read -p "回车继续..." < /dev/tty ;;
         5) do_uninstall ;;
         0) exit 0 ;;
-        *) echo "无效选项" && sleep 1 ;;
     esac
 done
