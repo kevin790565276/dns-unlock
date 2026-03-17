@@ -22,20 +22,20 @@ GAI_CONF="/etc/gai.conf"
 get_status() {
     CURRENT_DNS=$(grep "nameserver" $RESOLV_CONF | awk '{print $2}' | head -n 1)
     [ -f "$CONF_FILE" ] && UNLOCK_IP=$(grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" $CONF_FILE | tail -n 1) || UNLOCK_IP="未配置"
-    [[ "$CURRENT_DNS" == "127.0.0.1" ]] && DNS_STATUS="${GREEN}已接管 (127.0.0.1)${NC}" || DNS_STATUS="${RED}直连 ($CURRENT_DNS)${NC}"
+    [[ "$CURRENT_DNS" == "127.0.0.1" || "$CURRENT_DNS" == "::1" ]] && DNS_STATUS="${GREEN}已接管 (Dual-Stack)${NC}" || DNS_STATUS="${RED}直连 ($CURRENT_DNS)${NC}"
 }
 
 show_menu() {
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (双栈分流版) ${NC}"
+    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (双栈修复版) ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 (精准分流)"
+    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(支持 IPv6)${NC}"
     echo -e "  ${RED}3.${NC} 还原系统配置"
     echo -e "  ${YELLOW}4.${NC} 运行解锁检测"  
     echo -e "  ${PURPLE}5.${NC} 卸载 Dnsmasq 环境"
@@ -58,30 +58,33 @@ do_config() {
     read dns_ip < /dev/tty
     [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 错误${NC}" && sleep 2 && return
 
-    if [ -f "$GAI_CONF" ]; then
-        sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' $GAI_CONF
-    fi
+    # 1. 优先使用 IPv4 (解决 SG/HK 区域冲突)
+    [ -f "$GAI_CONF" ] && sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' $GAI_CONF
 
-    # 配置 Dnsmasq 规则：特定域名走解锁 + 屏蔽其 IPv6
+    # 2. 配置 Dnsmasq 规则
     mkdir -p /etc/dnsmasq.d/
     echo "server=8.8.8.8" > $CONF_FILE
     echo "server=2001:4860:4860::8888" >> $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do 
         echo "server=/$d/$dns_ip" >> $CONF_FILE
+        # 核心：屏蔽解锁域名的 IPv6，强制其走解锁 IPv4
         echo "address=/$d/::" >> $CONF_FILE
     done
 
+    # 3. 修正 Dnsmasq 主配置
+    sed -i '/listen-address=/d' $MAIN_CONF
+    echo "listen-address=127.0.0.1,::1" >> $MAIN_CONF
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
-    grep -q "listen-address=127.0.0.1,::1" $MAIN_CONF || echo "listen-address=127.0.0.1,::1" >> $MAIN_CONF
     grep -q "no-resolv" $MAIN_CONF || echo "no-resolv" >> $MAIN_CONF
 
+    # 4. 锁定 DNS 指向本地双栈回环
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     echo "nameserver ::1" >> $RESOLV_CONF
     chattr +i $RESOLV_CONF
 
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置成功，已实现精准双栈分流${NC}"
+    echo -e "${GREEN}[+] 配置成功，IPv6 已恢复解析${NC}"
     read -p "按回车返回..." < /dev/tty
 }
 
@@ -89,6 +92,7 @@ do_clear() {
     echo -e "\n${YELLOW}[*] 正在还原系统设置...${NC}"
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 8.8.8.8" > $RESOLV_CONF
+    echo "nameserver 2001:4860:4860::8888" >> $RESOLV_CONF
     [ -f "$GAI_CONF" ] && sed -i 's/^precedence ::ffff:0:0\/96  100/#precedence ::ffff:0:0\/96  100/' $GAI_CONF
     rm -f $CONF_FILE
     systemctl restart dnsmasq 2>/dev/null
