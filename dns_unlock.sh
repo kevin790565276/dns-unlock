@@ -29,7 +29,7 @@ show_menu() {
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (双栈修复版) ${NC}"
+    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (多机通用版) ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
@@ -46,43 +46,53 @@ show_menu() {
 }
 
 do_install() {
-    echo -e "\n${YELLOW}[*] 正在安装 Dnsmasq 环境...${NC}"
-    apt-get update && apt-get install -y dnsmasq e2fsprogs || yum install -y dnsmasq e2fsprogs
+    echo -e "\n${YELLOW}[*] 正在准备环境...${NC}"
+    # 彻底关闭可能占用 53 端口的服务
+    systemctl stop systemd-resolved 2>/dev/null
+    systemctl disable systemd-resolved 2>/dev/null
+    
+    apt-get update && apt-get install -y dnsmasq e2fsprogs dnsutils || yum install -y dnsmasq e2fsprogs bind-utils
     systemctl enable dnsmasq && systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 安装成功${NC}"
+    echo -e "${GREEN}[+] 环境准备完成${NC}"
     sleep 2
 }
 
 do_config() {
     echo -ne "\n${CYAN}请输入解锁 IP: ${NC}"
     read dns_ip < /dev/tty
-    [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 错误${NC}" && sleep 2 && return
+    [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 格式错误${NC}" && sleep 2 && return
 
-    # 1. 强制 IPv4 优先（防止系统偷跑原生 IPv6）
+    # 1. 优先级调整
     [ -f "$GAI_CONF" ] && sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' $GAI_CONF
 
-    # 2. 配置 Dnsmasq 规则
+    # 2. 构造解锁规则
     mkdir -p /etc/dnsmasq.d/
     echo "server=8.8.8.8" > $CONF_FILE
     echo "server=2001:4860:4860::8888" >> $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do 
-        # 强制解锁域名：A记录指向解锁IP，AAAA记录返回空（屏蔽v6）
         echo "address=/$d/$dns_ip" >> $CONF_FILE
-        echo "address=/$d/::" >> $CONF_FILE
+        echo "address=/$d/::" >> $CONF_FILE # 屏蔽解锁域名的 v6 记录
     done
 
-    # 3. 修正 Dnsmasq 主配置
-    sed -i '/listen-address=/d' $MAIN_CONF
-    echo "listen-address=127.0.0.1,::1" >> $MAIN_CONF
-    sed -i 's/^#conf-dir/conf-dir/g' $MAIN_CONF
-    
-    # 4. 锁定 DNS 指向本地
+    # 3. 强制修正 Dnsmasq 主配置
+    cat > $MAIN_CONF <<EOF
+listen-address=127.0.0.1,::1
+no-resolv
+conf-dir=/etc/dnsmasq.d/,*.conf
+EOF
+
+    # 4. 强制接管 DNS
     chattr -i $RESOLV_CONF 2>/dev/null
     echo -e "nameserver 127.0.0.1\nnameserver ::1" > $RESOLV_CONF
     chattr +i $RESOLV_CONF
 
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置成功：解锁域名强制走 v4，非解锁域名保持原生双栈${NC}"
+    echo -e "${GREEN}[+] 配置已强制生效：解锁域名仅走 v4，非解锁域名双栈原生${NC}"
+    
+    # 验证解析
+    echo -e "${YELLOW}[*] 验证测试 (netflix.com):${NC}"
+    nslookup netflix.com 127.0.0.1 | grep "Address"
+    
     read -p "按回车返回..." < /dev/tty
 }
 
@@ -100,7 +110,7 @@ do_clear() {
 
 do_check() {
     curl -sL https://raw.githubusercontent.com/oneclickvirt/UnlockTests/main/ut_install.sh -sSf | bash
-    [ -f "/usr/bin/ut" ] && /usr/bin/ut || ut
+    /usr/bin/ut
     read -p "按回车返回..." < /dev/tty
 }
 
