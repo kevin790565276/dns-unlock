@@ -17,6 +17,7 @@ STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
+GAI_CONF="/etc/gai.conf"
 
 get_status() {
     CURRENT_DNS=$(grep "nameserver" $RESOLV_CONF | awk '{print $2}' | head -n 1)
@@ -28,15 +29,15 @@ show_menu() {
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}            DNS 流媒体 & AI 解锁 (兼容中转版) ${NC}"
+    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (双栈修复版) ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(兼容 Realm)${NC}"
+    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(修复 IPv6 解析)${NC}"
     echo -e "  ${RED}3.${NC} 还原系统配置"
-    echo -e "  ${YELLOW}4.${NC} 运行解锁检测 （oneclickvirt）"  
+    echo -e "  ${YELLOW}4.${NC} 运行解锁检测"  
     echo -e "  ${PURPLE}5.${NC} 卸载 Dnsmasq 环境"
     echo -e "  ${BLUE}0.${NC} 退出脚本"
     echo -e "${CYAN}==================================================${NC}"
@@ -46,7 +47,7 @@ show_menu() {
 
 do_install() {
     echo -e "\n${YELLOW}[*] 正在安装 Dnsmasq 环境...${NC}"
-    apt-get update && apt-get install -y dnsmasq || yum install -y dnsmasq
+    apt-get update && apt-get install -y dnsmasq e2fsprogs || yum install -y dnsmasq e2fsprogs
     systemctl enable dnsmasq && systemctl restart dnsmasq
     echo -e "${GREEN}[+] 安装成功${NC}"
     sleep 2
@@ -57,24 +58,32 @@ do_config() {
     read dns_ip < /dev/tty
     [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 错误${NC}" && sleep 2 && return
 
-    # 兼容性核心：清理旧规则并设置兜底
+    # 1. 修复 IPv4 优先级 (解决 SG/HK 冲突)
+    if [ -f "$GAI_CONF" ]; then
+        sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' $GAI_CONF
+    fi
+
+    # 2. 配置 Dnsmasq 规则
     mkdir -p /etc/dnsmasq.d/
     echo "server=8.8.8.8" > $CONF_FILE
-    echo "server=1.1.1.1" >> $CONF_FILE
-    for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do echo "server=/$d/$dns_ip" >> $CONF_FILE; done
+    echo "server=2001:4860:4860::8888" >> $CONF_FILE
+    for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do 
+        echo "server=/$d/$dns_ip" >> $CONF_FILE
+    done
 
-    # 核心修复：防止死循环
+    # 3. 基础 Dnsmasq 设置
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
     grep -q "no-resolv" $MAIN_CONF || echo "no-resolv" >> $MAIN_CONF
 
-    # 锁定 DNS，加入备用服务器防止 Realm 掉线
+    # 4. 锁定 DNS 并注入双栈解析器
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
     echo "nameserver 8.8.8.8" >> $RESOLV_CONF
+    echo "nameserver 2001:4860:4860::8888" >> $RESOLV_CONF
     chattr +i $RESOLV_CONF
 
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置成功，已兼容 Realm 中转${NC}"
+    echo -e "${GREEN}[+] 配置成功，已修复 IPv6 地址族支持${NC}"
     read -p "按回车返回..." < /dev/tty
 }
 
@@ -82,6 +91,8 @@ do_clear() {
     echo -e "\n${YELLOW}[*] 正在还原系统设置...${NC}"
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 8.8.8.8" > $RESOLV_CONF
+    echo "nameserver 2001:4860:4860::8888" >> $RESOLV_CONF
+    [ -f "$GAI_CONF" ] && sed -i 's/^precedence ::ffff:0:0\/96  100/#precedence ::ffff:0:0\/96  100/' $GAI_CONF
     rm -f $CONF_FILE
     systemctl restart dnsmasq 2>/dev/null
     echo -e "${GREEN}[+] 还原成功${NC}"
@@ -115,6 +126,3 @@ while true; do
         0) exit 0 ;;
     esac
 done
-
-
-
