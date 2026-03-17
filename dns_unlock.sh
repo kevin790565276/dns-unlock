@@ -8,25 +8,24 @@ CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
 
-# --- 域名包 (含 AI、流媒体、TikTok 全家桶) ---
+# --- 域名包 (含 AI、流媒体，不包含tiktok,youtube) ---
 ALL_DOMAINS=(
-    # AI
-    openai.com chatgpt.com oaistatic.com oaiusercontent.com cdn.oaistatic.com
-    anthropic.com claude.ai gemini.google.com ai.google.dev aistudio.google.com
+    # AI & Search
+    openai.com chatgpt.com oaistatic.com oaiusercontent.com sora.com anthropic.com claude.ai
+    gemini.google.com ai.google.dev aistudio.google.com google.com.ai meta.ai
     bing.com copilot.microsoft.com perplexity.ai x.ai grok.com mistral.ai
-    # Google & YouTube
-    google.com google.com.hk google.com.tw google.jp google.com.sg 
-    googleapis.com gstatic.com googleusercontent.com googlefonts.com
-    youtube.com ytimg.com ggpht.com googlevideo.com youtubei.googleapis.com
-    # Netflix & Disney
-    netflix.com nflximg.net nflxvideo.net nflxext.com nflxso.net
-    disneyplus.com disney-plus.net bamgrid.com primevideo.com amazonvideo.com pv-cdn.net
-    # TikTok
-    # tiktok.com tiktokv.com byteoversea.com ibytedtos.com ipstatp.com muscdn.com tiktokcdn.com
-    # Others
-    hulu.com huluim.com peacocktv.com paramountplus.com max.com hbomax.com hbo.com
-    gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com 
-    abema.tv dmm.com tving.com wavve.com scdn.co
+    google.com google.com.hk google.com.tw google.jp google.com.sg googleapis.com gstatic.com
+    # Global Streaming
+    netflix.com nflximg.net nflxvideo.net nflxext.com nflxso.net disneyplus.com disney-plus.net bamgrid.com
+    primevideo.com amazonvideo.com pv-cdn.net spotify.com scdn.co
+    hulu.com huluim.com peacocktv.com paramountplus.com max.com hbomax.com hbo.com discovery.com dazn.com
+    # Regional (JP/HK/TW/SEA)
+    abema.tv dmm.com niconico.jp nicovideo.jp nhk.jp tver.jp u-next.jp dアニメストア.jp
+    videomarket.jp fod.fujitv.co.jp radiko.jp lemino.docomo.ne.jp mgs-video.jp telasa.jp wowow.co.jp
+    gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com hoy.tv hami.video catchplay.com
+    friday.tw 4gtv.tv kktv.me linetv.tw ofiii.com iq.com iqiyi.com hotstar.com kfs.io
+    # Social & Others (不含 TikTok)
+    instagram.com fbcdn.net reddit.com wikipedia.org bilibili.com steam-chat.com
 )
 
 # --- 1. 环境安装与清理 ---
