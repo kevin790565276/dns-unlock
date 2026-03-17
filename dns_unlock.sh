@@ -22,7 +22,7 @@ ALL_DOMAINS=(
     netflix.com nflximg.net nflxvideo.net nflxext.com nflxso.net
     disneyplus.com disney-plus.net bamgrid.com primevideo.com amazonvideo.com pv-cdn.net
     # TikTok
-    tiktok.com tiktokv.com byteoversea.com ibytedtos.com ipstatp.com muscdn.com tiktokcdn.com
+    # tiktok.com tiktokv.com byteoversea.com ibytedtos.com ipstatp.com muscdn.com tiktokcdn.com
     # Others
     hulu.com huluim.com peacocktv.com paramountplus.com max.com hbomax.com hbo.com
     gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com 
