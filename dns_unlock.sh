@@ -29,13 +29,13 @@ show_menu() {
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (双栈修复版) ${NC}"
+    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (双栈分流版) ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(修复 IPv6 解析)${NC}"
+    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 (精准分流)"
     echo -e "  ${RED}3.${NC} 还原系统配置"
     echo -e "  ${YELLOW}4.${NC} 运行解锁检测"  
     echo -e "  ${PURPLE}5.${NC} 卸载 Dnsmasq 环境"
@@ -58,32 +58,30 @@ do_config() {
     read dns_ip < /dev/tty
     [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 错误${NC}" && sleep 2 && return
 
-    # 1. 修复 IPv4 优先级 (解决 SG/HK 冲突)
     if [ -f "$GAI_CONF" ]; then
         sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' $GAI_CONF
     fi
 
-    # 2. 配置 Dnsmasq 规则
+    # 配置 Dnsmasq 规则：特定域名走解锁 + 屏蔽其 IPv6
     mkdir -p /etc/dnsmasq.d/
     echo "server=8.8.8.8" > $CONF_FILE
     echo "server=2001:4860:4860::8888" >> $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do 
         echo "server=/$d/$dns_ip" >> $CONF_FILE
+        echo "address=/$d/::" >> $CONF_FILE
     done
 
-    # 3. 基础 Dnsmasq 设置
     sed -i 's/^#conf-dir/conf-dir/' $MAIN_CONF
+    grep -q "listen-address=127.0.0.1,::1" $MAIN_CONF || echo "listen-address=127.0.0.1,::1" >> $MAIN_CONF
     grep -q "no-resolv" $MAIN_CONF || echo "no-resolv" >> $MAIN_CONF
 
-    # 4. 锁定 DNS 并注入双栈解析器
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 127.0.0.1" > $RESOLV_CONF
-    echo "nameserver 8.8.8.8" >> $RESOLV_CONF
-    echo "nameserver 2001:4860:4860::8888" >> $RESOLV_CONF
+    echo "nameserver ::1" >> $RESOLV_CONF
     chattr +i $RESOLV_CONF
 
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置成功，已修复 IPv6 地址族支持${NC}"
+    echo -e "${GREEN}[+] 配置成功，已实现精准双栈分流${NC}"
     read -p "按回车返回..." < /dev/tty
 }
 
@@ -91,7 +89,6 @@ do_clear() {
     echo -e "\n${YELLOW}[*] 正在还原系统设置...${NC}"
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 8.8.8.8" > $RESOLV_CONF
-    echo "nameserver 2001:4860:4860::8888" >> $RESOLV_CONF
     [ -f "$GAI_CONF" ] && sed -i 's/^precedence ::ffff:0:0\/96  100/#precedence ::ffff:0:0\/96  100/' $GAI_CONF
     rm -f $CONF_FILE
     systemctl restart dnsmasq 2>/dev/null
