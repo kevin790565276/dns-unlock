@@ -9,19 +9,34 @@ if [[ "$0" != "/usr/local/bin/dns" && "$0" != "dns" ]]; then
     echo -e "${GREEN}[+] 快捷指令 'dns' 注册成功${NC}"
 fi
 
-# --- 域名列表 ---
-GOOGLE_DOMAINS=(google.com google.com.hk google.com.tw google.jp google.co.jp google.com.sg googleapis.com gstatic.com googleusercontent.com drive.google.com mail.google.com android.com play.google.com developer.android.com google-analytics.com googleadservices.com googletagmanager.com googlefonts.com gvt1.com)
-AI_DOMAINS=(copilot.microsoft.com bing.com bing.com.hk edgeservices.microsoft.com githubcopilot.com api.githubcopilot.com copilot-proxy.githubusercontent.com github.com githubapp.com api.github.com openai.com chatgpt.com oaistatic.com oaiusercontent.com anthropic.com claude.ai gemini.google.com perplexity.ai x.ai grok.com mistral.ai)
-STREAMING_DOMAINS=(netflix.com nflximg.net nflxvideo.net nflxext.com disneyplus.com disney-plus.net bamgrid.com max.com hbomax.com hbo.com hbonow.com primevideo.com amazonvideo.com hulu.com huluim.com peacocktv.com paramountplus.com gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com abema.tv ds-msn.com tving.com wavve.com scdn.co)
+# --- 全球流媒体 & AI 域名列表 (主域名匹配) ---
+ALL_DOMAINS=(
+    # --- AI 服务 ---
+    openai.com chatgpt.com oaistatic.com oaiusercontent.com cdn.oaistatic.com
+    anthropic.com claude.ai 
+    gemini.google.com ai.google.dev aistudio.google.com
+    bing.com copilot.microsoft.com perplexity.ai x.ai grok.com mistral.ai
+    # --- 跨国流媒体 ---
+    netflix.com nflximg.net nflxvideo.net nflxext.com nflxso.net
+    disneyplus.com disney-plus.net bamgrid.com
+    primevideo.com amazonvideo.com pv-cdn.net
+    youtube.com ytimg.com ggpht.com googlevideo.com youtubei.googleapis.com
+    tiktok.com tiktokv.com byteoversea.com
+    hulu.com huluim.com peacocktv.com paramountplus.com max.com hbomax.com hbo.com
+    # --- 地区流媒体 (港台/日韩/东南亚) ---
+    gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com 
+    abema.tv dmm.com tving.com wavve.com scdn.co spotify.com
+    # --- Google 全家桶 (确保 Play Store / Search 解锁) ---
+    google.com google.com.hk google.com.tw google.jp google.com.sg 
+    googleapis.com gstatic.com googleusercontent.com googlefonts.com
+)
 
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
-GAI_CONF="/etc/gai.conf"
 
 get_status() {
     CURRENT_DNS=$(grep "nameserver" $RESOLV_CONF | awk '{print $2}' | head -n 1)
-    # 修复抓取逻辑：只查找 address 映射中的 IP
     if [ -f "$CONF_FILE" ]; then
         UNLOCK_IP=$(grep "address=" $CONF_FILE | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" | head -n 1)
     fi
@@ -33,13 +48,13 @@ show_menu() {
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}         DNS 流媒体 & AI 解锁 (原生 IPv6 版) ${NC}"
+    echo -e "${PURPLE}      DNS 全球流媒体 & AI 解锁 (全域增强版) ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(仅映射 v4，v6 保持原生)${NC}"
+    echo -e "  ${GREEN}2.${NC} 配置解锁规则 ${YELLOW}(全域名映射 + v6 原生优先 v4)${NC}"
     echo -e "  ${RED}3.${NC} 还原系统配置"
     echo -e "  ${YELLOW}4.${NC} 运行解锁检测"  
     echo -e "  ${PURPLE}5.${NC} 卸载 Dnsmasq 环境"
@@ -50,13 +65,12 @@ show_menu() {
 }
 
 do_install() {
-    echo -e "\n${YELLOW}[*] 正在安装 Dnsmasq 环境...${NC}"
+    echo -e "\n${YELLOW}[*] 正在准备环境...${NC}"
     systemctl stop systemd-resolved 2>/dev/null
     systemctl disable systemd-resolved 2>/dev/null
-    
     apt-get update && apt-get install -y dnsmasq e2fsprogs dnsutils || yum install -y dnsmasq e2fsprogs bind-utils
     systemctl enable dnsmasq && systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 安装成功${NC}"
+    echo -e "${GREEN}[+] 环境准备完成${NC}"
     sleep 2
 }
 
@@ -65,30 +79,35 @@ do_config() {
     read dns_ip < /dev/tty
     [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 错误${NC}" && sleep 2 && return
 
-    # 1. 恢复系统默认优先级（不强制 v4 优先，保持原生双栈逻辑）
-    [ -f "$GAI_CONF" ] && sed -i 's/^precedence ::ffff:0:0\/96  100/#precedence ::ffff:0:0\/96  100/' $GAI_CONF
+    # 1. 强制系统 IPv4 优先 (解决原生 v6 干扰的关键)
+    if [ -f "/etc/gai.conf" ]; then
+        sed -i '/precedence ::ffff:0:0\/96/d' /etc/gai.conf
+        echo "precedence ::ffff:0:0/96  100" >> /etc/gai.conf
+    fi
 
-    # 2. 配置 Dnsmasq 规则
+    # 2. 构造 Dnsmasq 规则
     mkdir -p /etc/dnsmasq.d/
     echo "server=8.8.8.8" > $CONF_FILE
     echo "server=2001:4860:4860::8888" >> $CONF_FILE
-    for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do 
-        # 只映射 IPv4，不写 IPv6 address 规则，Dnsmasq 就会自动向上游请求原生 IPv6
+    for d in "${ALL_DOMAINS[@]}"; do 
         echo "address=/$d/$dns_ip" >> $CONF_FILE
     done
 
-    # 3. 修正 Dnsmasq 主配置
-    sed -i '/listen-address=/d' $MAIN_CONF
-    echo "listen-address=127.0.0.1,::1" >> $MAIN_CONF
-    sed -i 's/^#conf-dir/conf-dir/g' $MAIN_CONF
+    # 3. 强制主配置
+    cat > $MAIN_CONF <<EOF
+listen-address=127.0.0.1,::1
+no-resolv
+conf-dir=/etc/dnsmasq.d/,*.conf
+rebind-localhost-ok
+EOF
     
-    # 4. 锁定 DNS 指向本地双栈
+    # 4. 锁定 DNS
     chattr -i $RESOLV_CONF 2>/dev/null
     echo -e "nameserver 127.0.0.1\nnameserver ::1" > $RESOLV_CONF
     chattr +i $RESOLV_CONF
 
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置成功：IPv4 已解锁，IPv6 解析保持原生且无 Failed 报错${NC}"
+    echo -e "${GREEN}[+] 配置已生效！流媒体全域名已指向解锁 IP，且 IPv6 保持原生。${NC}"
     read -p "按回车返回..." < /dev/tty
 }
 
@@ -97,7 +116,7 @@ do_clear() {
     chattr -i $RESOLV_CONF 2>/dev/null
     echo "nameserver 8.8.8.8" > $RESOLV_CONF
     echo "nameserver 2001:4860:4860::8888" >> $RESOLV_CONF
-    [ -f "$GAI_CONF" ] && sed -i 's/^precedence ::ffff:0:0\/96  100/#precedence ::ffff:0:0\/96  100/' $GAI_CONF
+    [ -f "/etc/gai.conf" ] && sed -i '/precedence ::ffff:0:0\/96/d' /etc/gai.conf
     rm -f $CONF_FILE
     systemctl restart dnsmasq 2>/dev/null
     echo -e "${GREEN}[+] 还原成功${NC}"
@@ -106,7 +125,7 @@ do_clear() {
 
 do_check() {
     curl -sL https://raw.githubusercontent.com/oneclickvirt/UnlockTests/main/ut_install.sh -sSf | bash
-    [ -f "/usr/bin/ut" ] && /usr/bin/ut || ut
+    /usr/bin/ut
     read -p "按回车返回..." < /dev/tty
 }
 
