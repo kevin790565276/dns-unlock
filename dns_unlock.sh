@@ -2,7 +2,7 @@
 
 # ==================================================
 # 项目名称: OmniUnlock (全球流媒体 & AI 终极解锁工具箱)
-# 版本号:   V1.0
+# 版本号:   V1.1
 # 功能:     基于 Dnsmasq 的针对性 IPv6 屏蔽与 IPv4 解锁分流
 # ==================================================
 
@@ -24,15 +24,15 @@ ALL_DOMAINS=(
     google.com google.com.hk google.com.tw google.jp google.com.sg googleapis.com gstatic.com
     # Global Streaming
     netflix.com nflximg.net nflxvideo.net nflxext.com nflxso.net disneyplus.com disney-plus.net bamgrid.com
-    primevideo.com amazonvideo.com pv-cdn.net spotify.com scdn.co
+    primevideo.com amazonvideo.com pv-cdn.net
     hulu.com huluim.com peacocktv.com paramountplus.com max.com hbomax.com hbo.com discovery.com dazn.com
     # Regional (JP/HK/TW/SEA)
     abema.tv dmm.com niconico.jp nicovideo.jp nhk.jp tver.jp u-next.jp dアニメストア.jp
     videomarket.jp fod.fujitv.co.jp radiko.jp lemino.docomo.ne.jp mgs-video.jp telasa.jp wowow.co.jp
     gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com hoy.tv hami.video catchplay.com
-    friday.tw 4gtv.tv kktv.me linetv.tw ofiii.com iq.com iqiyi.com hotstar.com kfs.io
+    friday.tw 4gtv.tv kktv.me linetv.tw ofiii.com iq.com hotstar.com kfs.io
     # Social & Others
-    instagram.com fbcdn.net reddit.com wikipedia.org bilibili.com steam-chat.com
+    instagram.com fbcdn.net bilibili.com steam-chat.com
 )
 
 # --- 状态获取逻辑 (修复显示残留问题) ---
