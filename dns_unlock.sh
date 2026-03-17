@@ -135,7 +135,7 @@ while true; do
     get_status
     clear
     echo -e "${CYAN}==================================================${NC}"
-    echo -e "${PURPLE}      DNS 全球流媒体 & AI 终极解锁工具箱 ${NC}"
+    echo -e "${PURPLE}      DNS 全球流媒体 & AI 终极解锁工具箱(V1.0) ${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  系统 DNS 状态: $DNS_STATUS"
     echo -e "  当前解锁 DNS: ${YELLOW}$UNLOCK_IP${NC}"
