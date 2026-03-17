@@ -21,7 +21,7 @@ GAI_CONF="/etc/gai.conf"
 
 get_status() {
     CURRENT_DNS=$(grep "nameserver" $RESOLV_CONF | awk '{print $2}' | head -n 1)
-    [ -f "$CONF_FILE" ] && UNLOCK_IP=$(grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" $CONF_FILE | tail -n 1) || UNLOCK_IP="未配置"
+    [ -f "$CONF_FILE" ] && UNLOCK_IP=$(grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" $CONF_FILE | head -n 1) || UNLOCK_IP="未配置"
     [[ "$CURRENT_DNS" == "127.0.0.1" || "$CURRENT_DNS" == "::1" ]] && DNS_STATUS="${GREEN}已接管 (Dual-Stack)${NC}" || DNS_STATUS="${RED}直连 ($CURRENT_DNS)${NC}"
 }
 
@@ -35,7 +35,7 @@ show_menu() {
     echo -e "  当前解锁 DNS: ${YELLOW}${UNLOCK_IP}${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装 Dnsmasq 环境"
-    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(IPv4解锁 + IPv6原生)${NC}"
+    echo -e "  ${GREEN}2.${NC} 配置 DNS 解锁规则 ${YELLOW}(强制v4解锁+v6原生)${NC}"
     echo -e "  ${RED}3.${NC} 还原系统配置"
     echo -e "  ${YELLOW}4.${NC} 运行解锁检测"  
     echo -e "  ${PURPLE}5.${NC} 卸载 Dnsmasq 环境"
@@ -58,7 +58,7 @@ do_config() {
     read dns_ip < /dev/tty
     [[ ! $dns_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo -e "${RED}[!] IP 错误${NC}" && sleep 2 && return
 
-    # 1. IPv4 优先
+    # 1. 强制 IPv4 优先（防止系统偷跑原生 IPv6）
     [ -f "$GAI_CONF" ] && sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' $GAI_CONF
 
     # 2. 配置 Dnsmasq 规则
@@ -66,8 +66,9 @@ do_config() {
     echo "server=8.8.8.8" > $CONF_FILE
     echo "server=2001:4860:4860::8888" >> $CONF_FILE
     for d in "${GOOGLE_DOMAINS[@]}" "${AI_DOMAINS[@]}" "${STREAMING_DOMAINS[@]}"; do 
-        # 修正：使用 address 映射 IPv4，不干扰 IPv6
+        # 强制解锁域名：A记录指向解锁IP，AAAA记录返回空（屏蔽v6）
         echo "address=/$d/$dns_ip" >> $CONF_FILE
+        echo "address=/$d/::" >> $CONF_FILE
     done
 
     # 3. 修正 Dnsmasq 主配置
@@ -81,7 +82,7 @@ do_config() {
     chattr +i $RESOLV_CONF
 
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 配置成功：IPv4 分流解锁已开启，IPv6 保持原生解析${NC}"
+    echo -e "${GREEN}[+] 配置成功：解锁域名强制走 v4，非解锁域名保持原生双栈${NC}"
     read -p "按回车返回..." < /dev/tty
 }
 
