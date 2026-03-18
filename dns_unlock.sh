@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==================================================
-# 项目名称: OmniUnlock (全球流媒体 & AI 终极解锁工具箱)
-# 版本号:   V1.1
+# 项目名称: OmniUnlock (全球流媒体 & AI 终极解锁工具箱 - 修复版)
+# 版本号:   V1.2 (Fixed Google Play & AI Additions)
 # 功能:     基于 Dnsmasq 的针对性 IPv6 屏蔽与 IPv4 解锁分流
 # ==================================================
 
@@ -13,29 +13,37 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; PU
 CONF_FILE="/etc/dnsmasq.d/unlock.conf"
 MAIN_CONF="/etc/dnsmasq.conf"
 RESOLV_CONF="/etc/resolv.conf"
-VERSION="V1.1"
+VERSION="V1.2"
 
-# --- 域名包 (不含 TikTok & YouTube，确保其原生直连) ---
+# --- 域名包 (已补全 Google Play, Paramount+, MetaAI, Sora, DAZN) ---
 ALL_DOMAINS=(
     # AI & Search
     openai.com chatgpt.com oaistatic.com oaiusercontent.com sora.com anthropic.com claude.ai
     gemini.google.com ai.google.dev aistudio.google.com google.com.ai meta.ai
     bing.com copilot.microsoft.com perplexity.ai x.ai grok.com mistral.ai
     google.com google.com.hk google.com.tw google.jp google.com.sg googleapis.com gstatic.com
+    googleusercontent.com google.cn play.google.com
+    
     # Global Streaming
     netflix.com nflximg.net nflxvideo.net nflxext.com nflxso.net disneyplus.com disney-plus.net bamgrid.com
-    primevideo.com amazonvideo.com pv-cdn.net spotify.com scdn.co
+    primevideo.com amazonvideo.com pv-cdn.net scdn.co spotify.com
     hulu.com huluim.com peacocktv.com paramountplus.com max.com hbomax.com hbo.com discovery.com dazn.com
+    dazn-api.com dazndn.com indazn.com daznedge.net
+    
+    # Google Play Download Fix (GVT 系列)
+    gvt0.com gvt1.com gvt2.com gvt3.com gvt5.com xn--ngstr-lra8j.com
+    
     # Regional (JP/HK/TW/SEA)
     abema.tv dmm.com niconico.jp nicovideo.jp nhk.jp tver.jp u-next.jp dアニメストア.jp
     videomarket.jp fod.fujitv.co.jp radiko.jp lemino.docomo.ne.jp mgs-video.jp telasa.jp wowow.co.jp
     gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com hoy.tv hami.video catchplay.com
     friday.tw 4gtv.tv kktv.me linetv.tw ofiii.com iq.com iqiyi.com hotstar.com kfs.io
+    
     # Social & Others
     instagram.com fbcdn.net reddit.com wikipedia.org bilibili.com steam-chat.com
 )
 
-# --- 状态获取逻辑 (修复显示残留问题) ---
+# --- 状态获取逻辑 ---
 get_status() {
     if grep -q "127.0.0.1" "$RESOLV_CONF" 2>/dev/null; then
         DNS_STATUS="${GREEN}已接管 (Dual-Stack)${NC}"
@@ -75,7 +83,8 @@ do_config() {
 
     for d in "${ALL_DOMAINS[@]}"; do 
         echo "address=/$d/$dns_ip" >> "$CONF_FILE"
-        if [[ "$d" =~ (netflix|nflx|google|openai|chatgpt|claude|gemini|disney|hulu|hbo|dmm|abema|viu|gamer|bahamut) ]]; then
+        # 针对特定流媒体和下载域名屏蔽 IPv6
+        if [[ "$d" =~ (netflix|nflx|google|openai|chatgpt|claude|gemini|disney|hulu|hbo|dmm|abema|viu|gamer|bahamut|gvt|paramount|meta) ]]; then
             echo "address=/$d/::" >> "$CONF_FILE"
         fi
     done
@@ -91,7 +100,7 @@ EOF
     echo -e "nameserver 127.0.0.1\nnameserver ::1" > "$RESOLV_CONF"
     chattr +i "$RESOLV_CONF"
     systemctl restart dnsmasq
-    echo -e "${GREEN}[+] 解锁规则已生效 (TikTok/YouTube 已保持原生直连)${NC}"
+    echo -e "${GREEN}[+] 解锁规则已生效 (Google Play 下载已修复)${NC}"
     sleep 2
 }
 
@@ -128,7 +137,7 @@ while true; do
     echo -e "  当前解锁 DNS: ${YELLOW}$UNLOCK_IP${NC}"
     echo -e "${CYAN}==================================================${NC}"
     echo -e "  ${GREEN}1.${NC} 安装/初始化环境"
-    echo -e "  ${GREEN}2.${NC} 开启解锁 ${YELLOW}(针对性屏蔽 v6 模式)${NC}"
+    echo -e "  ${GREEN}2.${NC} 开启解锁 ${YELLOW}(补全分流域名 & 修复下载)${NC}"
     echo -e "  ${BLUE}3.${NC} 还原直连配置 ${PURPLE}(不卸载)${NC}"
     echo -e "  ${CYAN}4.${NC} 运行解锁检测"
     echo -e "  ${RED}5.${NC} 彻底卸载 Dnsmasq 环境"
