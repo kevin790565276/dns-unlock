@@ -24,7 +24,7 @@ ALL_DOMAINS=(
     google.com google.com.hk google.com.tw google.jp google.com.sg googleapis.com gstatic.com
     # Global Streaming
     netflix.com nflximg.net nflxvideo.net nflxext.com nflxso.net disneyplus.com disney-plus.net bamgrid.com
-    primevideo.com amazonvideo.com pv-cdn.net spotify.com scdn.co
+    primevideo.com amazonvideo.com pv-cdn.net scdn.co
     hulu.com huluim.com peacocktv.com paramountplus.com max.com hbomax.com hbo.com discovery.com dazn.com
     # Regional (JP/HK/TW/SEA)
     abema.tv dmm.com niconico.jp nicovideo.jp nhk.jp tver.jp u-next.jp dアニメストア.jp
@@ -32,7 +32,7 @@ ALL_DOMAINS=(
     gamer.com.tw bahamut.com.tw viu.com viu.tv mytvsuper.com tvb.com hoy.tv hami.video catchplay.com
     friday.tw 4gtv.tv kktv.me linetv.tw ofiii.com iq.com iqiyi.com hotstar.com kfs.io
     # Social & Others
-    instagram.com fbcdn.net reddit.com wikipedia.org bilibili.com steam-chat.com
+    instagram.com fbcdn.net bilibili.com steam-chat.com
 )
 
 # --- 状态获取逻辑 (修复显示残留问题) ---
