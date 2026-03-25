@@ -21,6 +21,8 @@ curl -sSL https://raw.githubusercontent.com/kevin790565276/dns-unlock/main/dns_u
 ⚠️ 注意事项
 权限需求：必须使用 root 用户运行。
 
+编辑/etc/dnsmasq.d/unlock.conf添加需要解锁的流媒体及AI
+
 解锁 IP：请确保你拥有的解锁 IP（DNS 出口）本身具备相应平台的解锁权限。
 
 文件锁定：脚本会使用 chattr +i 锁定 DNS 配置文件，手动修改前请先通过脚本选项 3 或 5 解锁。
